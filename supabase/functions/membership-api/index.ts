@@ -220,31 +220,79 @@ async function submitMembershipRequest(
   return json({ requestId, status: "pending" }, 201);
 }
 
+// ---------- CORS ----------
+//
+// Only origins listed in FRONTEND_ORIGINS (comma-separated, exact match)
+// get CORS headers. Any other origin gets none, so the browser will not
+// let that page read the response. If the variable is missing, no origin
+// is allowed.
+
+const CORS_ALLOW_HEADERS = "authorization, apikey, content-type, x-client-info";
+const CORS_ALLOW_METHODS = "GET, POST, PATCH, OPTIONS";
+
+function allowedOrigins(): string[] {
+  return (Deno.env.get("FRONTEND_ORIGINS") ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+}
+
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("origin");
+  if (!origin || !allowedOrigins().includes(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": CORS_ALLOW_HEADERS,
+    "Access-Control-Allow-Methods": CORS_ALLOW_METHODS,
+    "Access-Control-Max-Age": "600",
+  };
+}
+
+function withCors(res: Response, req: Request): Response {
+  const out = new Response(res.body, res);
+  for (const [k, v] of Object.entries(corsHeaders(req))) out.headers.set(k, v);
+  // Responses differ by Origin, so caches must not mix them.
+  out.headers.append("Vary", "Origin");
+  return out;
+}
+
 // ---------- router ----------
 
+const api = withSupabase(
+  // CORS is handled below with the allow-list instead of the default "*".
+  { auth: ["user", "publishable"], cors: "disabled" },
+  async (req, ctx) => {
+    const path = routePath(req);
+
+    if (path === "/health") {
+      if (req.method !== "GET") {
+        return errorResponse(405, "method_not_allowed", {}, { Allow: "GET" });
+      }
+      return health();
+    }
+
+    if (path === "/membership-requests") {
+      if (req.method !== "POST") {
+        return errorResponse(405, "method_not_allowed", {}, {
+          Allow: "POST",
+        });
+      }
+      return await submitMembershipRequest(req, ctx);
+    }
+
+    return errorResponse(404, "not_found");
+  },
+);
+
 export default {
-  fetch: withSupabase(
-    { auth: ["user", "publishable"] },
-    async (req, ctx) => {
-      const path = routePath(req);
-
-      if (path === "/health") {
-        if (req.method !== "GET") {
-          return errorResponse(405, "method_not_allowed", {}, { Allow: "GET" });
-        }
-        return health();
-      }
-
-      if (path === "/membership-requests") {
-        if (req.method !== "POST") {
-          return errorResponse(405, "method_not_allowed", {}, {
-            Allow: "POST",
-          });
-        }
-        return await submitMembershipRequest(req, ctx);
-      }
-
-      return errorResponse(404, "not_found");
-    },
-  ),
+  async fetch(req: Request): Promise<Response> {
+    // Browser preflight: answered here, before any credential check,
+    // because preflight requests never carry credentials.
+    if (req.method === "OPTIONS") {
+      const headers = corsHeaders(req);
+      const allowed = "Access-Control-Allow-Origin" in headers;
+      return withCors(new Response(null, { status: allowed ? 204 : 403 }), req);
+    }
+    return withCors(await api(req), req);
+  },
 };
