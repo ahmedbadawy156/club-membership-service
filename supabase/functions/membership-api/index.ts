@@ -282,6 +282,84 @@ async function reviewMembershipRequest(
   return json({ requestId, status, alreadyDecided });
 }
 
+async function changeMemberRole(
+  req: Request,
+  ctx: Ctx,
+  targetId: string,
+): Promise<Response> {
+  const officer = await requireActiveOfficer(ctx);
+  if (!officer.ok) return officer.response;
+
+  if (!UUID_RE.test(targetId)) {
+    return errorResponse(400, "validation_failed", { fields: ["id"] });
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    if (err instanceof BodyTooLarge) {
+      return errorResponse(413, "body_too_large");
+    }
+    return errorResponse(400, "invalid_json");
+  }
+  const role = (body as { role?: unknown } | null)?.role;
+  if (role !== "member" && role !== "officer") {
+    return errorResponse(400, "validation_failed", { fields: ["role"] });
+  }
+
+  const admin = ctx.supabaseAdmin;
+
+  // Database step: roster lock, last-officer rule, role and audit log.
+  const { data: result, error: changeError } = await admin.rpc(
+    "change_member_role",
+    { p_target_id: targetId, p_actor_id: officer.officerId, p_new_role: role },
+  );
+  if (changeError) {
+    switch (changeError.code) {
+      case "MB403":
+        return errorResponse(403, "officer_only");
+      case "MB404":
+        return errorResponse(404, "user_not_found");
+      case "MB409":
+        return errorResponse(409, "target_not_active");
+      case "MB410":
+        return errorResponse(409, "last_officer");
+      case "22023":
+      case "22P02":
+        return errorResponse(400, "validation_failed");
+      default:
+        console.error("change member role failed", { code: changeError.code });
+        return errorResponse(500, "internal_error");
+    }
+  }
+
+  const { userId, role: newRole, previousRole, changed } = result as {
+    userId: string;
+    role: string;
+    previousRole: string;
+    changed: boolean;
+  };
+
+  // Auth step: the role claim that Events and Announcements read. Runs on
+  // repeats too, so sending the same request again fixes a failed update.
+  const { error: authError } = await admin.auth.admin.updateUserById(userId, {
+    app_metadata: { role: newRole },
+  });
+  if (authError) {
+    console.error("role change auth update failed", {
+      userId,
+      code: (authError as { code?: string }).code,
+    });
+    return errorResponse(500, "auth_update_failed", {
+      role: newRole,
+      retry: "send the same request again",
+    });
+  }
+
+  return json({ userId, role: newRole, previousRole, changed });
+}
+
 async function submitMembershipRequest(
   req: Request,
   ctx: Ctx,
@@ -448,6 +526,16 @@ const api = withSupabase(
         });
       }
       return await reviewMembershipRequest(req, ctx, item[1]);
+    }
+
+    const roleItem = path.match(/^\/members\/([^/]+)\/role$/);
+    if (roleItem) {
+      if (req.method !== "PATCH") {
+        return errorResponse(405, "method_not_allowed", {}, {
+          Allow: "PATCH",
+        });
+      }
+      return await changeMemberRole(req, ctx, roleItem[1]);
     }
 
     return errorResponse(404, "not_found");
