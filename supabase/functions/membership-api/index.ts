@@ -360,6 +360,105 @@ async function changeMemberRole(
   return json({ userId, role: newRole, previousRole, changed });
 }
 
+// Whole-number query parameter within [min, max]; null if invalid.
+function intParam(
+  params: URLSearchParams,
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number | null {
+  const raw = params.get(name);
+  if (raw === null) return fallback;
+  if (!/^\d{1,6}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= min && n <= max ? n : null;
+}
+
+const MEMBER_STATUSES = ["active", "inactive", "all"];
+const AUDIT_EVENT_TYPES = [
+  "login_failure",
+  "account_locked",
+  "membership_approved",
+  "membership_rejected",
+  "role_changed",
+];
+
+async function listMembers(req: Request, ctx: Ctx): Promise<Response> {
+  const officer = await requireActiveOfficer(ctx);
+  if (!officer.ok) return officer.response;
+
+  const params = new URL(req.url).searchParams;
+  const fields: string[] = [];
+
+  const search = (params.get("search") ?? "").trim();
+  if (search.length > 100 || CONTROL_RE.test(search)) fields.push("search");
+
+  const status = params.get("status") ?? "active";
+  if (!MEMBER_STATUSES.includes(status)) fields.push("status");
+
+  const limit = intParam(params, "limit", 50, 1, 100);
+  if (limit === null) fields.push("limit");
+
+  const offset = intParam(params, "offset", 0, 0, 100000);
+  if (offset === null) fields.push("offset");
+
+  if (fields.length > 0) {
+    return errorResponse(400, "validation_failed", { fields });
+  }
+
+  const { data, error } = await ctx.supabaseAdmin.rpc("search_members", {
+    p_search: search === "" ? null : search,
+    p_status: status,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) {
+    if (error.code === "22023") return errorResponse(400, "validation_failed");
+    console.error("search members failed", { code: error.code });
+    return errorResponse(500, "internal_error");
+  }
+
+  return json(data);
+}
+
+async function listAuditLog(req: Request, ctx: Ctx): Promise<Response> {
+  const officer = await requireActiveOfficer(ctx);
+  if (!officer.ok) return officer.response;
+
+  const params = new URL(req.url).searchParams;
+  const fields: string[] = [];
+
+  const type = params.get("type");
+  if (type !== null && !AUDIT_EVENT_TYPES.includes(type)) fields.push("type");
+
+  const limit = intParam(params, "limit", 50, 1, 100);
+  if (limit === null) fields.push("limit");
+
+  const before = params.get("before");
+  if (before !== null && !UUID_RE.test(before)) fields.push("before");
+
+  if (fields.length > 0) {
+    return errorResponse(400, "validation_failed", { fields });
+  }
+
+  const { data, error } = await ctx.supabaseAdmin.rpc("list_audit_log", {
+    p_type: type,
+    p_limit: limit,
+    p_before: before,
+  });
+  if (error) {
+    // 22023 here is mainly an unknown cursor.
+    if (error.code === "22023") {
+      return errorResponse(400, "validation_failed", { fields: ["before"] });
+    }
+    console.error("list audit log failed", { code: error.code });
+    return errorResponse(500, "internal_error");
+  }
+
+  return json({ entries: data });
+}
+
 async function submitMembershipRequest(
   req: Request,
   ctx: Ctx,
@@ -536,6 +635,20 @@ const api = withSupabase(
         });
       }
       return await changeMemberRole(req, ctx, roleItem[1]);
+    }
+
+    if (path === "/members") {
+      if (req.method !== "GET") {
+        return errorResponse(405, "method_not_allowed", {}, { Allow: "GET" });
+      }
+      return await listMembers(req, ctx);
+    }
+
+    if (path === "/audit-log") {
+      if (req.method !== "GET") {
+        return errorResponse(405, "method_not_allowed", {}, { Allow: "GET" });
+      }
+      return await listAuditLog(req, ctx);
     }
 
     return errorResponse(404, "not_found");
