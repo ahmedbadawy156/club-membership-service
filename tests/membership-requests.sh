@@ -27,7 +27,8 @@ sql() {
 }
 
 cleanup() {
-  sql "delete from public.membership_requests where email like '%@example.test';
+  sql "delete from public.audit_log where target_id in (select id from auth.users where email like '%@example.test') or actor_id in (select id from auth.users where email like '%@example.test');
+       delete from public.membership_requests where email like '%@example.test';
        delete from public.profiles where email like '%@example.test';
        delete from auth.users where email like '%@example.test';
        delete from public.membership_request_attempts;" >/dev/null
@@ -91,8 +92,8 @@ BIG="$(head -c 5000 /dev/zero | tr '\0' 'a')"
 post_request "{\"fullName\":\"$BIG\"}" "${PK[@]}"
 check "body over 4 KB" 413 "$STATUS" "$BODY_OUT"
 
-STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${PK[@]}" "$FN/membership-requests")"
-check "GET on membership-requests" 405 "$STATUS"
+STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X PUT "${PK[@]}" "$FN/membership-requests")"
+check "PUT on membership-requests" 405 "$STATUS"
 
 # --- valid submission (rate-limit attempt 1)
 EMAIL1="applicant-$RUN_ID@example.test"

@@ -115,10 +115,171 @@ function validateSubmission(
   return { ok: true, value: { fullName, email, password } };
 }
 
+// ---------- officer check ----------
+//
+// Membership owns the profiles table, so it checks the current role and
+// active flag there on every request instead of trusting the token's
+// role claim, which can be up to jwt_expiry old.
+
+type OfficerCheck =
+  | { ok: true; officerId: string }
+  | { ok: false; response: Response };
+
+async function requireActiveOfficer(ctx: Ctx): Promise<OfficerCheck> {
+  const claims = ctx.userClaims;
+  if (
+    ctx.authMode !== "user" || !claims?.id || claims.role !== "authenticated"
+  ) {
+    return { ok: false, response: errorResponse(401, "sign_in_required") };
+  }
+
+  const { data, error } = await ctx.supabaseAdmin
+    .from("profiles")
+    .select("role, active")
+    .eq("user_id", claims.id)
+    .maybeSingle();
+  if (error) {
+    console.error("officer check failed", { code: error.code });
+    return { ok: false, response: errorResponse(500, "internal_error") };
+  }
+  if (!data || data.role !== "officer" || data.active !== true) {
+    return { ok: false, response: errorResponse(403, "officer_only") };
+  }
+  return { ok: true, officerId: claims.id };
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REQUEST_STATUSES = ["pending", "approved", "rejected"];
+const MAX_LIST = 100;
+
 // ---------- routes ----------
 
 function health(): Response {
   return json({ service: "membership", status: "ok" });
+}
+
+async function listMembershipRequests(
+  req: Request,
+  ctx: Ctx,
+): Promise<Response> {
+  const officer = await requireActiveOfficer(ctx);
+  if (!officer.ok) return officer.response;
+
+  const status = new URL(req.url).searchParams.get("status") ?? "pending";
+  if (!REQUEST_STATUSES.includes(status)) {
+    return errorResponse(400, "validation_failed", { fields: ["status"] });
+  }
+
+  const { data, error } = await ctx.supabaseAdmin
+    .from("membership_requests")
+    .select(
+      "request_id, full_name, email, status, submitted_at, reviewed_at, reviewed_by",
+    )
+    .eq("status", status)
+    .order("submitted_at", { ascending: true })
+    .limit(MAX_LIST);
+  if (error) {
+    console.error("list membership requests failed", { code: error.code });
+    return errorResponse(500, "internal_error");
+  }
+
+  return json({
+    requests: (data ?? []).map((r) => ({
+      requestId: r.request_id,
+      fullName: r.full_name,
+      email: r.email,
+      status: r.status,
+      submittedAt: r.submitted_at,
+      reviewedAt: r.reviewed_at,
+      reviewedBy: r.reviewed_by,
+    })),
+  });
+}
+
+async function reviewMembershipRequest(
+  req: Request,
+  ctx: Ctx,
+  requestId: string,
+): Promise<Response> {
+  const officer = await requireActiveOfficer(ctx);
+  if (!officer.ok) return officer.response;
+
+  if (!UUID_RE.test(requestId)) {
+    return errorResponse(400, "validation_failed", { fields: ["id"] });
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    if (err instanceof BodyTooLarge) {
+      return errorResponse(413, "body_too_large");
+    }
+    return errorResponse(400, "invalid_json");
+  }
+  const decision = (body as { decision?: unknown } | null)?.decision;
+  if (decision !== "approve" && decision !== "reject") {
+    return errorResponse(400, "validation_failed", { fields: ["decision"] });
+  }
+
+  const admin = ctx.supabaseAdmin;
+
+  // Database step: decision, profile activation and audit log together.
+  const { data: result, error: reviewError } = await admin.rpc(
+    "review_membership_request",
+    {
+      p_request_id: requestId,
+      p_reviewer_id: officer.officerId,
+      p_decision: decision,
+    },
+  );
+  if (reviewError) {
+    switch (reviewError.code) {
+      case "MB403":
+        return errorResponse(403, "officer_only");
+      case "MB404":
+        return errorResponse(404, "request_not_found");
+      case "MB409":
+        return errorResponse(409, "already_decided");
+      case "22023":
+      case "22P02":
+        return errorResponse(400, "validation_failed");
+      default:
+        console.error("review membership request failed", {
+          code: reviewError.code,
+        });
+        return errorResponse(500, "internal_error");
+    }
+  }
+
+  const { userId, status, alreadyDecided } = result as {
+    userId: string;
+    status: string;
+    alreadyDecided: boolean;
+  };
+
+  // Auth step on approval: lift the ban and give the member role claim.
+  // Safe to repeat, so a failure here can be fixed by sending the same
+  // decision again.
+  if (status === "approved") {
+    const { error: authError } = await admin.auth.admin.updateUserById(
+      userId,
+      { ban_duration: "none", app_metadata: { role: "member" } },
+    );
+    if (authError) {
+      console.error("approval auth update failed", {
+        requestId,
+        code: (authError as { code?: string }).code,
+      });
+      return errorResponse(500, "auth_update_failed", {
+        status,
+        retry: "send the same decision again",
+      });
+    }
+  }
+
+  return json({ requestId, status, alreadyDecided });
 }
 
 async function submitMembershipRequest(
@@ -272,12 +433,21 @@ const api = withSupabase(
     }
 
     if (path === "/membership-requests") {
-      if (req.method !== "POST") {
+      if (req.method === "POST") return await submitMembershipRequest(req, ctx);
+      if (req.method === "GET") return await listMembershipRequests(req, ctx);
+      return errorResponse(405, "method_not_allowed", {}, {
+        Allow: "GET, POST",
+      });
+    }
+
+    const item = path.match(/^\/membership-requests\/([^/]+)$/);
+    if (item) {
+      if (req.method !== "PATCH") {
         return errorResponse(405, "method_not_allowed", {}, {
-          Allow: "POST",
+          Allow: "PATCH",
         });
       }
-      return await submitMembershipRequest(req, ctx);
+      return await reviewMembershipRequest(req, ctx, item[1]);
     }
 
     return errorResponse(404, "not_found");
