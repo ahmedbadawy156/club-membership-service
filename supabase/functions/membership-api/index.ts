@@ -459,6 +459,169 @@ async function listAuditLog(req: Request, ctx: Ctx): Promise<Response> {
   return json({ entries: data });
 }
 
+// ---------- login ----------
+//
+// Every failed sign-in gets the same 401 so the response does not reveal
+// whether an email exists or is still pending. A locked account gets 423.
+
+const LOCK_BAN_DURATION = "15m"; // matches the 15-minute lock in SQL
+
+async function banDuringLock(ctx: Ctx, userId: string, active: boolean) {
+  // Only approved members: a pending applicant already has a long ban
+  // that must not be shortened.
+  if (!active) return;
+  const { error } = await ctx.supabaseAdmin.auth.admin.updateUserById(userId, {
+    ban_duration: LOCK_BAN_DURATION,
+  });
+  if (error) {
+    console.error("login: ban during lock failed", {
+      code: (error as { code?: string }).code,
+    });
+  }
+}
+
+async function login(req: Request, ctx: Ctx): Promise<Response> {
+  if (ctx.authMode !== "publishable") {
+    return errorResponse(403, "already_signed_in");
+  }
+
+  const salt = Deno.env.get("MEMBERSHIP_IP_HASH_SALT");
+  if (!salt) {
+    console.error("login: MEMBERSHIP_IP_HASH_SALT is not set");
+    return errorResponse(500, "server_misconfigured");
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    if (err instanceof BodyTooLarge) {
+      return errorResponse(413, "body_too_large");
+    }
+    return errorResponse(400, "invalid_json");
+  }
+  const b = (typeof body === "object" && body !== null && !Array.isArray(body))
+    ? body as Record<string, unknown>
+    : {};
+  const email = typeof b.email === "string" ? b.email.trim().toLowerCase() : "";
+  const password = typeof b.password === "string" ? b.password : "";
+  const fields: string[] = [];
+  if (email.length < 3 || email.length > 254 || !EMAIL_RE.test(email)) {
+    fields.push("email");
+  }
+  const pwBytes = new TextEncoder().encode(password).byteLength;
+  if (pwBytes < 1 || pwBytes > 72) fields.push("password");
+  if (fields.length > 0) {
+    return errorResponse(400, "validation_failed", { fields });
+  }
+
+  const admin = ctx.supabaseAdmin;
+
+  // Per-address limit.
+  const ipHash = await hashIp(clientIp(req), salt);
+  const { data: ipResult, error: ipError } = await admin.rpc(
+    "record_login_ip_attempt",
+    { p_ip_hash: ipHash },
+  );
+  if (ipError) {
+    console.error("login: ip limit failed", { code: ipError.code });
+    return errorResponse(500, "internal_error");
+  }
+  if (ipResult !== "ok") {
+    return errorResponse(429, "rate_limited", {}, { "Retry-After": "900" });
+  }
+
+  // Lock check, and the attempt is counted before the password is checked.
+  const { data: start, error: startError } = await admin.rpc(
+    "start_login_attempt",
+    { p_email: email },
+  );
+  if (startError) {
+    console.error("login: start attempt failed", { code: startError.code });
+    return errorResponse(500, "internal_error");
+  }
+  const attempt = start as {
+    userId: string | null;
+    active: boolean;
+    allowed: boolean;
+    retryAfterSeconds: number;
+    newlyLocked: boolean;
+  };
+  if (!attempt.allowed) {
+    if (attempt.newlyLocked && attempt.userId) {
+      await banDuringLock(ctx, attempt.userId, attempt.active);
+    }
+    return errorResponse(423, "account_locked", {}, {
+      "Retry-After": String(Math.max(1, attempt.retryAfterSeconds)),
+    });
+  }
+
+  // Password check by Supabase Auth.
+  const { data: signIn, error: signInError } = await ctx.supabase.auth
+    .signInWithPassword({ email, password });
+
+  if (signInError || !signIn?.session) {
+    const status = (signInError as { status?: number } | null)?.status;
+    if (status === 429) {
+      // Auth refused before checking the password. The attempt stays
+      // counted: resetting it here would let a guesser clear the counter
+      // by provoking Auth's limit.
+      console.error("login: Auth rate limit reached");
+      return errorResponse(503, "try_again_later", {}, { "Retry-After": "60" });
+    }
+    if (status !== undefined && status >= 500) {
+      console.error("login: Auth error", { status });
+      return errorResponse(500, "internal_error");
+    }
+    if (attempt.userId) {
+      const { data: finish, error: finishError } = await admin.rpc(
+        "finish_login_attempt",
+        { p_user_id: attempt.userId, p_success: false },
+      );
+      if (finishError) {
+        console.error("login: finish attempt failed", {
+          code: finishError.code,
+        });
+      } else if ((finish as { newlyLocked: boolean }).newlyLocked) {
+        await banDuringLock(ctx, attempt.userId, attempt.active);
+      }
+    }
+    return errorResponse(401, "invalid_credentials");
+  }
+
+  // Success.
+  const userId = signIn.session.user.id;
+  const { error: resetError } = await admin.rpc("finish_login_attempt", {
+    p_user_id: userId,
+    p_success: true,
+  });
+  if (resetError) {
+    console.error("login: reset counter failed", { code: resetError.code });
+  }
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("full_name, role, active")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!profile || profile.active !== true) {
+    // Should not happen (inactive accounts are banned), but never hand
+    // out a session for an account that is not an active member.
+    await admin.auth.admin.signOut(signIn.session.access_token).catch(() => {});
+    return errorResponse(401, "invalid_credentials");
+  }
+
+  const s = signIn.session;
+  return json({
+    accessToken: s.access_token,
+    refreshToken: s.refresh_token,
+    tokenType: s.token_type,
+    expiresIn: s.expires_in,
+    expiresAt: s.expires_at,
+    user: { id: userId, fullName: profile.full_name, role: profile.role },
+  });
+}
+
 async function submitMembershipRequest(
   req: Request,
   ctx: Ctx,
@@ -635,6 +798,13 @@ const api = withSupabase(
         });
       }
       return await changeMemberRole(req, ctx, roleItem[1]);
+    }
+
+    if (path === "/auth/login") {
+      if (req.method !== "POST") {
+        return errorResponse(405, "method_not_allowed", {}, { Allow: "POST" });
+      }
+      return await login(req, ctx);
     }
 
     if (path === "/members") {
