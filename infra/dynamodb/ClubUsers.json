@@ -1,0 +1,16 @@
+{
+  "TableName": "ClubUsers",
+  "BillingMode": "PAY_PER_REQUEST",
+  "AttributeDefinitions": [
+    { "AttributeName": "userId", "AttributeType": "S" },
+    { "AttributeName": "emailLower", "AttributeType": "S" }
+  ],
+  "KeySchema": [{ "AttributeName": "userId", "KeyType": "HASH" }],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "EmailIndex",
+      "KeySchema": [{ "AttributeName": "emailLower", "KeyType": "HASH" }],
+      "Projection": { "ProjectionType": "ALL" }
+    }
+  ]
+}

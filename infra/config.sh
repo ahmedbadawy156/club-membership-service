@@ -23,6 +23,7 @@ ROLE=club-membership-role
 ROLE_POLICY=club-membership-access
 API_NAME=club-membership-http-api
 LOG_GROUP=/aws/lambda/$FUNCTION
+SECRET_ID=club-membership/secrets
 
 # Website origins allowed by CORS. On Floci the S3 website is served from
 # http://localhost:4566; add the local dev frontend while developing.

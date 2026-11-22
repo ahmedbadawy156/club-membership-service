@@ -2,6 +2,45 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "UsersAndRequestsReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:000000000000:table/ClubUsers",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/ClubUsers/index/*",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/MembershipRequests",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/MembershipRequests/index/*"
+      ]
+    },
+    {
+      "Sid": "AuditLogAppendAndReadOnly",
+      "Effect": "Allow",
+      "Action": ["dynamodb:PutItem", "dynamodb:Query"],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:000000000000:table/AuditLog",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/AuditLog/index/*"
+      ]
+    },
+    {
+      "Sid": "RateLimitCounters",
+      "Effect": "Allow",
+      "Action": ["dynamodb:UpdateItem"],
+      "Resource": "arn:aws:dynamodb:us-east-1:000000000000:table/RateLimits"
+    },
+    {
+      "Sid": "OwnSecretReadOnly",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:us-east-1:000000000000:secret:club-membership/secrets-*"
+    },
+    {
       "Sid": "OwnLogGroupOnly",
       "Effect": "Allow",
       "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],

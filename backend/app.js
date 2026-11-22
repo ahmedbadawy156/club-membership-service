@@ -8,6 +8,7 @@ const cors = require("cors");
 const requestLog = require("./middleware/requestLog");
 const { notFound, errorHandler } = require("./middleware/errors");
 const healthRoutes = require("./routes/health");
+const membershipRequestRoutes = require("./routes/membershipRequests");
 
 const app = express();
 app.disable("x-powered-by");
@@ -31,10 +32,32 @@ app.use(cors({
   maxAge: 600,
 }));
 
-// JSON bodies up to 4 KB; larger bodies get 413 from the error handler.
-app.use(express.json({ limit: "4kb" }));
+const BODY_LIMIT_BYTES = 4096;
+
+// On Lambda, serverless-http hands Express the body as raw bytes in req.body,
+// and Express 5's JSON parser skips any request whose body is already set.
+// So the raw bytes are parsed here, with the same limit and error codes.
+app.use((req, res, next) => {
+  if (!Buffer.isBuffer(req.body)) return next();
+  const raw = req.body;
+  req.body = undefined;
+  if (raw.length === 0) return next();
+  if (raw.length > BODY_LIMIT_BYTES) return res.status(413).json({ error: "body_too_large" });
+  if (!req.is("application/json")) return next();
+  try {
+    req.body = JSON.parse(raw.toString("utf8"));
+  } catch {
+    return res.status(400).json({ error: "invalid_json" });
+  }
+  req._body = true; // tell express.json the body is already parsed
+  return next();
+});
+
+// On your PC: JSON bodies up to 4 KB; larger bodies get 413.
+app.use(express.json({ limit: BODY_LIMIT_BYTES }));
 
 app.use("/api/health", healthRoutes);
+app.use("/api/membership-requests", membershipRequestRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

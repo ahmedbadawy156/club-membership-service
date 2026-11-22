@@ -4,4 +4,10 @@
 const serverless = require("serverless-http");
 const app = require("./app");
 
-module.exports.handler = serverless(app); // Lambda setting: handler = lambda.handler
+module.exports.handler = serverless(app, {
+  // Keep the gateway event on the request, so the code can read values the
+  // gateway sets itself (such as the caller's source address).
+  request(req, event) {
+    req.lambdaEvent = event;
+  },
+}); // Lambda setting: handler = lambda.handler

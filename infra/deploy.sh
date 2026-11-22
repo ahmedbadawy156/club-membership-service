@@ -15,6 +15,30 @@ step() { echo "== $*"; }
   exit 1
 }
 
+step "0/5 DynamoDB tables and the service secret"
+for def in infra/dynamodb/*.json; do
+  table=$(basename "$def" .json)
+  if ! "$AWS" dynamodb describe-table --table-name "$table" >/dev/null 2>&1; then
+    "$AWS" dynamodb create-table --cli-input-json "file://$def" >/dev/null
+    "$AWS" dynamodb wait table-exists --table-name "$table"
+    echo "   + table $table"
+  fi
+done
+"$AWS" dynamodb update-time-to-live --table-name RateLimits \
+  --time-to-live-specification "Enabled=true,AttributeName=expiresAt" >/dev/null 2>&1 || true
+
+# The secret is created once. Its values are generated into a temporary file,
+# stored in Secrets Manager, and the file is deleted. Nothing is printed.
+if ! "$AWS" secretsmanager describe-secret --secret-id "$SECRET_ID" >/dev/null 2>&1; then
+  mkdir -p infra/out
+  node infra/make-secret.js infra/out/secret.tmp.json
+  "$AWS" secretsmanager create-secret --name "$SECRET_ID" \
+    --description "Membership service token keys and address-hash salt" \
+    --secret-string file://infra/out/secret.tmp.json >/dev/null
+  rm -f infra/out/secret.tmp.json
+  echo "   + secret $SECRET_ID"
+fi
+
 step "1/5 IAM role $ROLE and its policy"
 if ! "$AWS" iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
   "$AWS" iam create-role --role-name "$ROLE" \
@@ -27,7 +51,7 @@ step "2/5 Install and zip the backend"
 (cd backend && npm install --omit=dev --no-audit --no-fund --loglevel=error && npm run zip --silent)
 
 step "3/5 Lambda function $FUNCTION"
-ENV_VARS="Variables={NODE_ENV=production,CORS_ORIGINS=${CORS_ORIGINS//,/\\,}}"
+ENV_VARS="Variables={NODE_ENV=production,CORS_ORIGINS=${CORS_ORIGINS//,/\\,},SECRET_ID=$SECRET_ID,USERS_TABLE=ClubUsers,REQUESTS_TABLE=MembershipRequests,AUDIT_TABLE=AuditLog,RATE_LIMITS_TABLE=RateLimits}"
 if "$AWS" lambda get-function --function-name "$FUNCTION" >/dev/null 2>&1; then
   "$AWS" lambda update-function-code --function-name "$FUNCTION" \
     --zip-file fileb://backend/lambda.zip >/dev/null
