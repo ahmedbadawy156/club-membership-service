@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Deploy the Membership service to Floci. Safe to run again: it creates what
+# is missing and updates what exists.
+#   bash infra/deploy.sh
+# Steps: IAM role + policy -> zip -> Lambda function -> API Gateway (routes,
+# stage, permission) -> prints the API address and saves it to infra/out/api.env
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source infra/config.sh
+
+step() { echo "== $*"; }
+
+"$AWS" sts get-caller-identity --query Account --output text >/dev/null 2>&1 || {
+  echo "Floci is not reachable. Start it: docker compose -f infra/floci/docker-compose.yml up -d" >&2
+  exit 1
+}
+
+step "1/5 IAM role $ROLE and its policy"
+if ! "$AWS" iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
+  "$AWS" iam create-role --role-name "$ROLE" \
+    --assume-role-policy-document file://infra/iam/trust-policy.json >/dev/null
+fi
+"$AWS" iam put-role-policy --role-name "$ROLE" --policy-name "$ROLE_POLICY" \
+  --policy-document file://infra/iam/membership-policy.json
+
+step "2/5 Install and zip the backend"
+(cd backend && npm install --omit=dev --no-audit --no-fund --loglevel=error && npm run zip --silent)
+
+step "3/5 Lambda function $FUNCTION"
+ENV_VARS="Variables={NODE_ENV=production,CORS_ORIGINS=${CORS_ORIGINS//,/\\,}}"
+if "$AWS" lambda get-function --function-name "$FUNCTION" >/dev/null 2>&1; then
+  "$AWS" lambda update-function-code --function-name "$FUNCTION" \
+    --zip-file fileb://backend/lambda.zip >/dev/null
+  "$AWS" lambda wait function-updated-v2 --function-name "$FUNCTION"
+  "$AWS" lambda update-function-configuration --function-name "$FUNCTION" \
+    --timeout 15 --memory-size 256 --environment "$ENV_VARS" >/dev/null
+  "$AWS" lambda wait function-updated-v2 --function-name "$FUNCTION"
+else
+  "$AWS" lambda create-function --function-name "$FUNCTION" \
+    --runtime nodejs24.x --handler lambda.handler \
+    --role "arn:aws:iam::$ACCOUNT:role/$ROLE" \
+    --zip-file fileb://backend/lambda.zip --timeout 15 --memory-size 256 \
+    --environment "$ENV_VARS" >/dev/null
+  "$AWS" lambda wait function-active-v2 --function-name "$FUNCTION"
+fi
+
+step "4/5 API Gateway $API_NAME"
+API_ID=$("$AWS" apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
+if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
+  API_ID=$("$AWS" apigatewayv2 create-api --name "$API_NAME" --protocol-type HTTP --query ApiId --output text)
+fi
+FUNCTION_ARN="arn:aws:lambda:$REGION:$ACCOUNT:function:$FUNCTION"
+INTEGRATION_ID=$("$AWS" apigatewayv2 get-integrations --api-id "$API_ID" \
+  --query "Items[?IntegrationUri=='$FUNCTION_ARN'].IntegrationId | [0]" --output text)
+if [ -z "$INTEGRATION_ID" ] || [ "$INTEGRATION_ID" = "None" ]; then
+  INTEGRATION_ID=$("$AWS" apigatewayv2 create-integration --api-id "$API_ID" \
+    --integration-type AWS_PROXY --payload-format-version 2.0 \
+    --integration-uri "$FUNCTION_ARN" --query IntegrationId --output text)
+fi
+
+# Routes: make the gateway match infra/routes.txt exactly.
+WANTED=$(grep -v '^\s*#' infra/routes.txt | sed 's/\r$//' | grep -v '^\s*$' || true)
+EXISTING=$("$AWS" apigatewayv2 get-routes --api-id "$API_ID" \
+  --query 'Items[].[RouteKey,RouteId]' --output text | sed 's/\r$//')
+while IFS= read -r key; do
+  [ -z "$key" ] && continue
+  if ! printf '%s\n' "$EXISTING" | cut -f1 | grep -qxF "$key"; then
+    "$AWS" apigatewayv2 create-route --api-id "$API_ID" --route-key "$key" \
+      --target "integrations/$INTEGRATION_ID" >/dev/null
+    echo "   + route $key"
+  fi
+done <<< "$WANTED"
+while IFS=$'\t' read -r key id; do
+  [ -z "$key" ] && continue
+  if ! printf '%s\n' "$WANTED" | grep -qxF "$key"; then
+    "$AWS" apigatewayv2 delete-route --api-id "$API_ID" --route-id "$id"
+    echo "   - route $key (no longer listed)"
+  fi
+done <<< "$EXISTING"
+
+if [ "$("$AWS" apigatewayv2 get-stages --api-id "$API_ID" --query "Items[?StageName=='\$default'] | length(@)" --output text)" = "0" ]; then
+  "$AWS" apigatewayv2 create-stage --api-id "$API_ID" --stage-name '$default' --auto-deploy >/dev/null
+fi
+
+step "5/5 Allow only this API to invoke the function"
+"$AWS" lambda add-permission --function-name "$FUNCTION" --statement-id apigw-invoke \
+  --action lambda:InvokeFunction --principal apigateway.amazonaws.com \
+  --source-arn "arn:aws:execute-api:$REGION:$ACCOUNT:$API_ID/*" >/dev/null 2>&1 || true
+
+API_URL=$(api_url "$API_ID")
+mkdir -p infra/out
+printf 'API_ID=%s\nAPI_URL=%s\n' "$API_ID" "$API_URL" > infra/out/api.env
+echo
+echo "Deployed. API: $API_URL"
+echo "Try:      curl $API_URL/api/health"

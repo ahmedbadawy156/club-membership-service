@@ -1,0 +1,5 @@
+# API Gateway route allow-list for club-membership-http-api.
+# One "METHOD /path" per line. Anything not listed is refused by the gateway
+# with 404 before the Lambda function runs. deploy.sh creates missing routes
+# and deletes routes that are no longer listed.
+GET /api/health
