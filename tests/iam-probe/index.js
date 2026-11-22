@@ -2,7 +2,7 @@
 // as club-membership-api, runs it once and deletes it. It tries calls the
 // role should allow and calls it should not, and reports each outcome.
 const {
-  DynamoDBClient, ScanCommand, ListTablesCommand, DeleteItemCommand, PutItemCommand,
+  DynamoDBClient, ScanCommand, ListTablesCommand, DeleteItemCommand, PutItemCommand, UpdateItemCommand,
 } = require("@aws-sdk/client-dynamodb");
 const {
   SecretsManagerClient, GetSecretValueCommand, CreateSecretCommand,
@@ -25,6 +25,10 @@ exports.handler = async () => Object.fromEntries(await Promise.all([
   attempt("put AuditLog", () => db.send(new PutItemCommand({
     TableName: "AuditLog",
     Item: { logId: { S: "iam-probe" }, feed: { S: "probe" }, eventType: { S: "probe" }, sortKey: { S: "0" } },
+  }))),
+  attempt("update AuditLog", () => db.send(new UpdateItemCommand({
+    TableName: "AuditLog", Key: { logId: { S: "iam-probe" } },
+    UpdateExpression: "SET eventType = :t", ExpressionAttributeValues: { ":t": { S: "tampered" } },
   }))),
   attempt("delete AuditLog", () => db.send(new DeleteItemCommand({ TableName: "AuditLog", Key: { logId: { S: "iam-probe" } } }))),
   attempt("scan RateLimits", () => db.send(new ScanCommand({ TableName: "RateLimits", Select: "COUNT" }))),

@@ -4,6 +4,7 @@
 //   node tests/helpers.js make-officer NAME EMAIL PASSWORD   -> prints userId
 //   node tests/helpers.js token USERID ROLE [valid|expired|wrongkey|none|hs256]
 //   node tests/helpers.js set-user USERID FIELD JSONVALUE
+//   node tests/helpers.js audit-fill COUNT TARGETID   (login_failure entries, same timestamp)
 // Tokens are minted with the service's real private key (read from Secrets
 // Manager) only so tests can act before login exists, and to build attacks.
 const path = require("path");
@@ -113,6 +114,17 @@ async function setUser(userId, field, value) {
   if (field === "role" || field === "active") await recountOfficers();
 }
 
+async function auditFill(count, targetId) {
+  const createdAt = new Date().toISOString();
+  for (let i = 0; i < Number(count); i += 1) {
+    const logId = crypto.randomUUID();
+    await db.send(new PutCommand({
+      TableName: "AuditLog",
+      Item: { logId, feed: "audit", eventType: "login_failure", sortKey: `${createdAt}#${logId}`, createdAt, actorId: null, targetId, metadata: {} },
+    }));
+  }
+}
+
 (async () => {
   const [cmd, ...a] = process.argv.slice(2);
   if (cmd === "cleanup") await cleanup();
@@ -120,5 +132,6 @@ async function setUser(userId, field, value) {
   else if (cmd === "make-officer") process.stdout.write(await makeOfficer(a[0], a[1], a[2]));
   else if (cmd === "token") process.stdout.write(await token(a[0], a[1], a[2]));
   else if (cmd === "set-user") await setUser(a[0], a[1], a[2]);
+  else if (cmd === "audit-fill") await auditFill(a[0], a[1]);
   else throw new Error(`unknown command ${cmd}`);
 })().catch((e) => { console.error(e.message); process.exit(1); });

@@ -15,3 +15,7 @@ OPTIONS /api/auth/login
 GET /api/auth/public-key
 PATCH /api/members/{id}/role
 OPTIONS /api/members/{id}/role
+GET /api/members
+OPTIONS /api/members
+GET /api/audit-log
+OPTIONS /api/audit-log

@@ -35,7 +35,7 @@ fs.writeFileSync("infra/out/tmp/iam-probe.zip",Buffer.concat([l,name,packed,c,na
 R=$(cat infra/out/tmp/iam-probe.json)
 
 for pair in "scan ClubUsers:allowed" "read own secret:allowed" "put AuditLog:allowed" \
-            "delete AuditLog:denied" "scan RateLimits:denied" "list tables:denied" "create a secret:denied"; do
+            "update AuditLog:denied" "delete AuditLog:denied" "scan RateLimits:denied" "list tables:denied" "create a secret:denied"; do
   op=${pair%%:*}; want=${pair##*:}
   check "role: $op" "$want" "$(printf '%s' "$R" | jget "j[\"$op\"]")"
 done
