@@ -10,3 +10,6 @@ GET /api/membership-requests
 OPTIONS /api/membership-requests
 PATCH /api/membership-requests/{id}
 OPTIONS /api/membership-requests/{id}
+POST /api/auth/login
+OPTIONS /api/auth/login
+GET /api/auth/public-key

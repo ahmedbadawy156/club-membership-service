@@ -4,7 +4,8 @@
 #   PATCH /api/membership-requests/{id}
 # plus token checks and infra/create-officer.sh.
 #   bash tests/officer-review.sh        (after bash infra/deploy.sh)
-# Until login exists (milestone 5), tests mint tokens with tests/helpers.js.
+# Officer and member tokens come from the real login; tests/helpers.js mints
+# only the attack tokens (stale role, expired, wrong key, alg none, HS256).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source infra/config.sh
@@ -27,6 +28,10 @@ call() { # METHOD PATH TOKEN [BODY] -> STATUS, BODY_OUT
 submit() { # NAME EMAIL -> requestId
   curl -s -m 60 -X POST "$URL" -H "Content-Type: application/json" \
     --data-binary "{\"fullName\":\"$1\",\"email\":\"$2\",\"password\":\"$PW\"}" | jget 'j.requestId'
+}
+signin() { # EMAIL -> access token from the real login
+  curl -s -m 60 -X POST "$API_URL/api/auth/login" -H "Content-Type: application/json" \
+    --data-binary "{\"email\":\"$1\",\"password\":\"$PW\"}" | jget 'j.accessToken'
 }
 user_by_email() { # EMAIL -> JSON item or ""
   "$AWS" dynamodb query --table-name ClubUsers --index-name EmailIndex \
@@ -53,7 +58,8 @@ else
 fi
 
 OFFICER_ID=$(helper make-officer "Test Officer" "officer-$RUN_ID@example.test" "$PW")
-T_OFF=$(helper token "$OFFICER_ID" officer)
+T_OFF=$(signin "officer-$RUN_ID@example.test")
+check "officer token from the real login" yes "$([ -n "$T_OFF" ] && echo yes || echo no)"
 
 OUT=$(OFFICER_NAME="Second Officer" OFFICER_EMAIL="second-$RUN_ID@example.test" OFFICER_PASSWORD="$PW" bash infra/create-officer.sh 2>&1)
 check "create-officer.sh refused when an officer exists" yes "$(echo "$OUT" | grep -q 'already exists' && echo yes || echo no)" "$OUT"
@@ -119,7 +125,8 @@ check "  account exists only if approved" "$FINAL" \
 rm -rf "$TMPD"
 
 # --- callers who must be refused
-T_MEM=$(helper token "$UA_ID" member)
+T_MEM=$(signin "$EA")
+check "approved member signs in" yes "$([ -n "$T_MEM" ] && echo yes || echo no)"
 call GET "" "$T_MEM";                                   check "member token: list" 403 "$STATUS" "$BODY_OUT"
 call PATCH "/$REQ_D" "$T_MEM" '{"decision":"approve"}'; check "member token: approve" 403 "$STATUS" "$BODY_OUT"
 T_STALE=$(helper token "$UA_ID" officer)
