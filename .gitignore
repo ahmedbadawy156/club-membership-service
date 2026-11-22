@@ -1,6 +1,10 @@
 node_modules/
 .env
-supabase/functions/.env
-
-supabase/.temp/
-supabase/.branches/
+*.env.local
+backend/lambda.zip
+infra/out/
+out/
+# Keys generated for local use (the private key goes to Secrets Manager)
+infra/keys/
+# Left over from the Supabase version on older branches
+supabase/
