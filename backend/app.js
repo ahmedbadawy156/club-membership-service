@@ -10,6 +10,7 @@ const { notFound, errorHandler } = require("./middleware/errors");
 const healthRoutes = require("./routes/health");
 const membershipRequestRoutes = require("./routes/membershipRequests");
 const authRoutes = require("./routes/auth");
+const memberRoutes = require("./routes/members");
 
 const app = express();
 app.disable("x-powered-by");
@@ -60,6 +61,7 @@ app.use(express.json({ limit: BODY_LIMIT_BYTES }));
 app.use("/api/health", healthRoutes);
 app.use("/api/membership-requests", membershipRequestRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/members", memberRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

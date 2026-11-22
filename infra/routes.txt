@@ -13,3 +13,5 @@ OPTIONS /api/membership-requests/{id}
 POST /api/auth/login
 OPTIONS /api/auth/login
 GET /api/auth/public-key
+PATCH /api/members/{id}/role
+OPTIONS /api/members/{id}/role
