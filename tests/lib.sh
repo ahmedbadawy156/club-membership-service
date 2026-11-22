@@ -25,30 +25,9 @@ jget() {
 }
 jq_keys() { jget 'Object.keys(j).sort().join(",")'; }
 
-# Delete every item whose key matches a filter, using the admin CLI keys.
-_delete_where() { # TABLE KEYATTR FILTER VALUES_JSON
-  "$AWS" dynamodb scan --table-name "$1" --projection-expression "$2" \
-    --filter-expression "$3" --expression-attribute-values "$4" \
-    --query "Items[].$2.S" --output text 2>/dev/null | tr '\t' '\n' | sed 's/\r$//' |
-  while read -r k; do
-    [ -z "$k" ] || [ "$k" = "None" ] && continue
-    "$AWS" dynamodb delete-item --table-name "$1" --key "{\"$2\":{\"S\":\"$k\"}}" >/dev/null
-  done
-}
-
-reset_rate_limits() {
-  "$AWS" dynamodb scan --table-name RateLimits --projection-expression limitKey \
-    --query 'Items[].limitKey.S' --output text 2>/dev/null | tr '\t' '\n' | sed 's/\r$//' |
-  while read -r k; do
-    [ -z "$k" ] || [ "$k" = "None" ] && continue
-    "$AWS" dynamodb delete-item --table-name RateLimits --key "{\"limitKey\":{\"S\":\"$k\"}}" >/dev/null
-  done
-}
-
-# Remove all *@example.test requests, email claims and users, and the counters.
-cleanup_test_data() {
-  local v='{":d":{"S":"@example.test"}}'
-  _delete_where MembershipRequests requestId 'contains(emailLower, :d) OR contains(requestId, :d)' "$v"
-  _delete_where ClubUsers userId 'contains(emailLower, :d)' "$v"
-  reset_rate_limits
-}
+# Test data helpers (admin keys, see tests/helpers.js).
+helper() { node tests/helpers.js "$@"; }
+reset_rate_limits() { helper reset-limits; }
+# Remove all *@example.test requests, email claims, users and their audit
+# entries, clear the counters and recount the officers.
+cleanup_test_data() { helper cleanup; }

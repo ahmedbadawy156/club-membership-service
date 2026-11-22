@@ -2,7 +2,11 @@
 # One "METHOD /path" per line. Anything not listed is refused by the gateway
 # with 404 before the Lambda function runs. deploy.sh creates missing routes
 # and deletes routes that are no longer listed.
-# OPTIONS routes let browsers ask the CORS question before POST/PATCH.
+# OPTIONS routes let browsers ask the CORS question before POST/PATCH or
+# requests that carry an Authorization header.
 GET /api/health
 POST /api/membership-requests
+GET /api/membership-requests
 OPTIONS /api/membership-requests
+PATCH /api/membership-requests/{id}
+OPTIONS /api/membership-requests/{id}
