@@ -32,6 +32,7 @@ app.use(cors({
   origin: (origin, callback) => callback(null, Boolean(origin) && allowedOrigins.includes(origin)),
   methods: ["GET", "POST", "PATCH", "OPTIONS"],
   allowedHeaders: ["authorization", "content-type"],
+  exposedHeaders: ["Retry-After"], // lets the page show how long a lock or limit lasts
   maxAge: 600,
 }));
 
