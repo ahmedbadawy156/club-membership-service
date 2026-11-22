@@ -1,0 +1,222 @@
+### infra/check.sh (2026-11-22T13:21:57Z)
+== Membership service on Floci: http://921c818603.execute-api.localhost.floci.io:4566
+PASS  function state                                          Active
+PASS  function runtime                                        nodejs24.x
+PASS  GET /api/health through API Gateway                     {"service":"membership","status":"ok","runtime":"lambda"}
+PASS  unlisted method refused by the gateway                  404
+PASS  unknown path refused by the gateway                     404
+PASS  gateway refusal body                                    {"message":"Not Found"}
+PASS  CORS: allowed origin gets its own origin back           http://localhost:4566
+PASS  CORS: other origin gets no header                       
+PASS  CloudWatch Logs has request lines                       yes
+PASS  log lines never contain a query string                  0
+== 10 passed, 0 failed
+
+### tests/membership-requests.sh (2026-11-22T13:22:11Z)
+== membership-requests tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353731)
+PASS  valid request                                           201
+PASS    response has only requestId and status                requestId,status
+PASS    stored as pending                                     pending
+PASS    password stored as a bcrypt hash                      yes
+PASS    plain password not stored anywhere in the item        no
+PASS    address stored only as a 64-char hash                 yes
+PASS    email claimed once (EMAIL# item)                      ca4154aa-880a-4e4a-ac59-6d1cfcb4132d
+PASS    no account created before approval                    0
+PASS  duplicate email (different case)                        409
+PASS    still exactly one request for the email               1
+PASS  name with script text accepted as text                  201
+PASS    stored exactly as typed                               Name <script>alert(1)</script>
+PASS  missing email and password                              400
+PASS    names the fields                                      email,password
+PASS  bad email format                                        400
+PASS  password shorter than 8                                 400
+PASS  name shorter than 2                                     400
+PASS  password over 72 bytes                                  400
+PASS  array instead of object                                 400
+PASS  invalid JSON                                            400
+PASS  body over 4 KB                                          413
+PASS  caller with a token refused                             403
+PASS  PUT not listed: refused by the gateway                  {"message":"Not Found"} 404
+PASS  preflight from the website origin                       http://localhost:4566
+PASS  preflight from another origin: no allow header          
+PASS  4 simultaneous requests, same email                     201x1 409x3
+PASS  5 requests from one address                             201 201 201 201 201 
+PASS  6th request in the hour                                 429
+PASS    has a Retry-After header                              yes
+PASS  spoofed X-Forwarded-For does not reset the limit        429
+PASS    refused requests stored nothing                       0
+== 31 passed, 0 failed
+
+### tests/officer-review.sh (2026-11-22T13:22:36Z)
+== officer review tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353756)
+PASS  create-officer.sh creates the first officer             yes
+PASS    officer stored as active officer                      officer|true
+PASS    bootstrap audit entry written                         1
+PASS  officer token from the real login                       yes
+PASS  create-officer.sh refused when an officer exists        yes
+PASS    and created nothing                                   
+PASS  setup: four requests submitted                          yes
+PASS  officer lists pending requests                          200
+PASS    contains the four test requests, oldest first         b6d02fcb-4567-4229-9798-7ef43d4ce208,75e8815d-ad7c-4dee-94c9-669ed9321fdd,852c9707-81bf-4924-9ef3-ae86784920d5,2bd87d04-89b6-45a0-8d39-50ed4b779864
+PASS    only documented fields, no hash                       email,fullName,requestId,reviewedAt,reviewedBy,status,submittedAt
+PASS  invalid status filter                                   400
+PASS  approve request A                                       200
+PASS    response                                              b6d02fcb-4567-4229-9798-7ef43d4ce208|approved|false
+PASS    account created: active member                        member|true|0
+PASS    password hash moved to the account                    yes
+PASS    request: approved, reviewer recorded, no hash left    approved|363e982e-099a-46f2-ab79-8ef2dd24443e|
+PASS    audit: membership_approved by the officer             1
+PASS  approve A again                                         200|true
+PASS    no second account, no second audit entry              1|1
+PASS  reject A after approval                                 409
+PASS  reject request B                                        200
+PASS    no account for B, hash removed from request           |
+PASS    audit: membership_rejected with applicant name, no email 1|
+PASS  B cannot apply again with the same email                409
+PASS  approve + reject at once: one wins                      200 409
+PASS    account exists only if approved                       approved
+PASS  approved member signs in                                yes
+PASS  member token: list                                      403
+PASS  member token: approve                                   403
+PASS  token says officer but database says member             403
+PASS  no token                                                401
+PASS  malformed token                                         401
+PASS  officer token with expired signature/expiry             401
+PASS  officer token with wrongkey signature/expiry            401
+PASS  officer token with none signature/expiry                401
+PASS  officer token with hs256 signature/expiry               401
+PASS  request D still pending after refused attempts          pending
+PASS  deactivated officer: list                               403
+PASS  deactivated officer: approve                            403
+PASS  invalid request id                                      400
+PASS  unknown request id                                      404
+PASS  invalid decision                                        400
+PASS  GET on a single request: refused by the gateway         404
+PASS  approved list shows A reviewed by the officer           363e982e-099a-46f2-ab79-8ef2dd24443e
+== 44 passed, 0 failed
+
+### tests/login.sh (2026-11-22T13:23:31Z)
+== login tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353811)
+PASS  officer signs in through the API                        yes
+PASS  setup: three approved members exist                     member|member|member
+PASS  correct login                                           200
+PASS    response fields                                       accessToken,expiresAt,expiresIn,tokenType,user
+PASS    user and expiry                                       member|Bearer|900
+PASS  public key endpoint                                     RS256|club-membership|campus-club|yes
+PASS    never contains a private key                          no
+PASS    token verifies with the published key (role|lifetime|sub) member|900|36
+PASS    counter reset to 0                                    0
+PASS    counter after one wrong password                      1
+PASS  wrong password / unknown email / pending applicant      401 401 401
+PASS    identical bodies                                      {"error":"invalid_credentials"}
+PASS  success after a failure resets the counter              200|0
+PASS  five wrong passwords                                    401 401 401 401 401 
+PASS  6th attempt with the CORRECT password                   423
+PASS    Retry-After between 1 and 900                         yes
+PASS  audit: 5 login_failure + 1 account_locked               5|1
+PASS    audit entries contain no email or address             0
+PASS  login works after the lock expires                      200
+PASS    counter reset, lock removed                           0|
+PASS  10 simultaneous wrong logins: 5 checked, 5 refused      401x5 423x5
+PASS    locked, exactly one account_locked entry              yes|1
+PASS  deactivated account, correct password                   401|{"error":"invalid_credentials"}
+PASS  21st attempt from one address in 15 minutes             429
+PASS    counter of the account not touched                    1
+PASS  invalid email                                           400
+PASS  empty password                                          400
+PASS  caller already signed in                                403
+PASS  GET on login: refused by the gateway                    404
+== 29 passed, 0 failed
+
+### tests/role-change.sh (2026-11-22T13:24:39Z)
+== role change tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353879)
+PASS  setup: officer and three members                        yes
+PASS  promote member 1                                        200
+PASS    changed true, previous role member                    true|member|officer
+PASS    member 1's next login token says officer              officer
+PASS    member 1 can now use officer routes                   200
+PASS    officer counter matches the officers                  2
+PASS  promote again: changed false                            200|false
+PASS    no new audit entry                                    1
+PASS  demote member 1                                         200
+PASS    old token still says officer                          officer
+PASS    but Membership refuses it at once                     403
+PASS    next login token says member                          member
+PASS  only officer demotes themself                           409|last_officer
+PASS    still an officer                                      200
+PASS  promote member 2                                        200
+PASS  O demotes themself (another officer exists)             200
+PASS    O's token now refused                                 403
+PASS    counter matches the officers                          1
+PASS  member 2 promotes member 1 (two officers)               200
+PASS  simultaneous demotions: exactly one succeeds            yes
+PASS    exactly one officer left among them                   1
+PASS    counter matches the officers                          1
+PASS  promote a deactivated member                            409|target_not_active
+PASS  member token                                            403
+PASS  no token                                                401
+PASS  invalid user id                                         400
+PASS  invalid role                                            400
+PASS  unknown user                                            404
+PASS  GET on the role path: refused by the gateway            404
+PASS  audit has one role_changed per real change              6
+PASS    entries record old and new role                       officer>member
+== 31 passed, 0 failed
+
+### tests/members-audit.sh (2026-11-22T13:25:28Z)
+== members and audit-log tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353928)
+PASS  setup: officer and three members                        yes
+PASS  officer lists active members                            200
+PASS    sorted by name, inactive left out                     Alice Smith, Bob 100% Real, Carol_Jones
+PASS    total                                                 3
+PASS    only documented fields                                active,createdAt,email,fullName,role,userId
+PASS    no password hash anywhere                             no
+PASS  search part of a name, any case                         Alice Smith
+PASS  search by email, any case                               Bob 100% Real
+PASS  search % matches only a literal %                       Bob 100% Real
+PASS  search _ matches only a literal _                       Carol_Jones
+PASS  filter-like search text is plain text                   0
+PASS  status=inactive                                         Dan Inactive
+PASS  status=all                                              Alice Smith, Bob 100% Real, Carol_Jones, Dan Inactive
+PASS  limit 2 offset 2: last page                             Carol_Jones|3
+PASS  members: invalid status=banned                          400
+PASS  members: invalid limit=0                                400
+PASS  members: invalid limit=500                              400
+PASS  members: invalid offset=-1                              400
+PASS  members: invalid limit=abc                              400
+PASS  members: invalid search=aaaaaaaaaaaaa                   400
+PASS  members: member token                                   403
+PASS  members: no token                                       401
+PASS  members: POST refused by the gateway                    404
+PASS  officer reads the audit log                             200
+PASS    this run's entries, newest first                      role_changed,role_changed,membership_approved,membership_approved,membership_approved
+PASS    newest records officer > member                       officer>member
+PASS    entry fields                                          actor,createdAt,eventType,logId,metadata,target
+PASS    actor shows id and name only                          fullName,userId|Alice Smith
+PASS    no email addresses in the response                    no
+PASS  paging 7 at a time over 30 equal timestamps             30|30|yes
+PASS  type filter returns only that type                      membership_approved
+PASS  audit-log: invalid type=hacked                          400
+PASS  audit-log: invalid limit=0                              400
+PASS  audit-log: invalid limit=101                            400
+PASS  audit-log: invalid before=not-a-uuid                    400
+PASS  audit-log: invalid before=00000000-0000-4               400
+PASS  audit-log: member token                                 403
+PASS  audit-log: no token                                     401
+PASS  audit-log: DELETE refused by the gateway                404
+== 39 passed, 0 failed
+
+### tests/iam.sh (2026-11-22T13:25:44Z)
+== IAM least-privilege test for role club-membership-role
+PASS  Floci IAM enforcement is on                             true
+PASS  admin keys cannot assume the function's role            denied
+PASS  role: scan ClubUsers                                    allowed
+PASS  role: read own secret                                   allowed
+PASS  role: put AuditLog                                      allowed
+PASS  role: update AuditLog                                   denied
+PASS  role: delete AuditLog                                   denied
+PASS  role: scan RateLimits                                   denied
+PASS  role: list tables                                       denied
+PASS  role: create a secret                                   denied
+== 10 passed, 0 failed
+

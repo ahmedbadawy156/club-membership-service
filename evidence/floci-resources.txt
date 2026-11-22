@@ -1,0 +1,88 @@
+# Floci resources for the Membership service (2026-11-22T13:26:09Z)
+# Account: 000000000000   Region: us-east-1
+# Floci IAM enforcement: true
+
+## DynamoDB tables
+AuditLog             status=ACTIVE items=0 indexes=FeedIndex,TypeIndex
+ClubUsers            status=ACTIVE items=1 indexes=EmailIndex
+MembershipRequests   status=ACTIVE items=0 indexes=StatusIndex
+RateLimits           status=ACTIVE items=0 indexes=None
+RateLimits TTL: ENABLED	expiresAt
+
+## Lambda function (environment variable NAMES only)
+--------------------------------------------------------------------
+|                     GetFunctionConfiguration                     |
++---------+--------------------------------------------------------+
+|  Handler|  lambda.handler                                        |
+|  Memory |  256                                                   |
+|  Name   |  club-membership-api                                   |
+|  Role   |  arn:aws:iam::000000000000:role/club-membership-role   |
+|  Runtime|  nodejs24.x                                            |
+|  State  |  Active                                                |
+|  Timeout|  15                                                    |
++---------+--------------------------------------------------------+
+Environment variable names: NODE_ENV CORS_ORIGINS SECRET_ID USERS_TABLE REQUESTS_TABLE AUDIT_TABLE RATE_LIMITS_TABLE
+
+## API Gateway club-membership-http-api (http://921c818603.execute-api.localhost.floci.io:4566)
+  GET /api/audit-log
+  GET /api/auth/public-key
+  GET /api/health
+  GET /api/members
+  GET /api/membership-requests
+  OPTIONS /api/audit-log
+  OPTIONS /api/auth/login
+  OPTIONS /api/members
+  OPTIONS /api/members/{id}/role
+  OPTIONS /api/membership-requests
+  OPTIONS /api/membership-requests/{id}
+  PATCH /api/members/{id}/role
+  PATCH /api/membership-requests/{id}
+  POST /api/auth/login
+  POST /api/membership-requests
+
+## IAM role club-membership-role
+Trust: lambda.amazonaws.com
+Inline policies: club-membership-access
+(policy document: infra/iam/membership-policy.json)
+
+## Secrets Manager (name and keys only, never values)
+Secret: club-membership/secrets
+Keys: jwtPrivateKey, jwtPublicKey, ipHashSalt
+
+## CloudWatch Logs /aws/lambda/club-membership-api (latest request lines)
+ 2026-11-22T13:25:41.228Z 3932547a-5999-4d2e-8815-7784b32adf03 INFO 2026-11-22T13:25:41.228Z GET /api/audit-log 200 9ms
+ 2026-11-22T13:25:41.527Z b519f14b-4690-424e-905d-6ab5f3631f59 INFO 2026-11-22T13:25:41.527Z GET /api/audit-log 200 9ms
+ 2026-11-22T13:25:41.832Z 68da0844-b0b9-4587-b717-09634a958b5b INFO 2026-11-22T13:25:41.832Z GET /api/audit-log 200 8ms
+ 2026-11-22T13:25:42.123Z e1c96cfe-3473-4716-a325-73d52c2fcfdd INFO 2026-11-22T13:25:42.123Z GET /api/audit-log 200 8ms
+ 2026-11-22T13:25:42.568Z ebb6a5a6-5e7f-4735-b0d9-1a334ef524ea INFO 2026-11-22T13:25:42.568Z GET /api/audit-log 200 8ms
+ 2026-11-22T13:25:42.795Z fef93b79-690c-49fb-ba43-0b533174c556 INFO 2026-11-22T13:25:42.795Z GET /api/audit-log 400 4ms
+ 2026-11-22T13:25:42.936Z e8e48151-67a8-4c63-9497-03f7ab88d699 INFO 2026-11-22T13:25:42.936Z GET /api/audit-log 400 3ms
+ 2026-11-22T13:25:43.059Z 9f2705c2-4491-4598-add6-e91542d85ba3 INFO 2026-11-22T13:25:43.059Z GET /api/audit-log 400 2ms
+ 2026-11-22T13:25:43.248Z be7ea53c-5a93-4fc5-b7d3-d92b5231d59a INFO 2026-11-22T13:25:43.248Z GET /api/audit-log 400 3ms
+ 2026-11-22T13:25:43.361Z a3cfe5c3-a523-420f-b849-387f83481562 INFO 2026-11-22T13:25:43.361Z GET /api/audit-log 400 4ms
+ 2026-11-22T13:25:43.482Z bf4ad9a1-0a20-4cb0-b583-8adde69bedd6 INFO 2026-11-22T13:25:43.482Z GET /api/audit-log 403 3ms
+ 2026-11-22T13:25:43.636Z b910d98b-d788-478d-be5a-3fa8a6940787 INFO 2026-11-22T13:25:43.636Z GET /api/audit-log 401 0ms
+
+## S3 website bucket club-web
+  announcements/index.html
+  announcements/index.js
+  events/index.html
+  events/index.js
+  home.js
+  index.html
+  membership/audit.html
+  membership/audit.js
+  membership/join.html
+  membership/join.js
+  membership/login.html
+  membership/login.js
+  membership/members.html
+  membership/members.js
+  membership/requests.html
+  membership/requests.js
+  shared/api.js
+  shared/auth.js
+  shared/config.js
+  shared/config.local.js
+  shared/styles.css
+  shared/ui.js
