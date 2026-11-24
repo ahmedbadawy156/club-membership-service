@@ -34,8 +34,14 @@ approve() { curl -s -m 60 -o /dev/null -X PATCH "$API_URL/api/membership-request
 role_changes() { "$AWS" dynamodb scan --table-name AuditLog --output json | \
   jget "j.Items.filter(e=>e.eventType.S==='role_changed' && [$1].includes(e.targetId?.S)).length"; }
 officer_counter() { "$AWS" dynamodb get-item --table-name ClubUsers --key '{"userId":{"S":"META#officers"}}' --query 'Item.count.N' --output text; }
+# Only test officers count: this Floci may also hold real officer accounts,
+# which the test never touches. isolate_officers sets the officer counter to
+# the test officers alone, so the club behaves as if they were its only
+# officers; cleanup (also on exit) restores the real count.
 active_officers() { "$AWS" dynamodb scan --table-name ClubUsers --output json | \
-  jget 'j.Items.filter(u=>u.role?.S==="officer"&&u.active?.BOOL===true).length'; }
+  jget 'j.Items.filter(u=>u.role?.S==="officer"&&u.active?.BOOL===true&&(u.emailLower?.S||"").includes("@example.test")).length'; }
+isolate_officers() { helper isolate-officers >/dev/null; }
+trap cleanup_test_data EXIT
 
 cleanup_test_data
 echo "== role change tests on $API_URL (run $RUN_ID)"
@@ -47,6 +53,8 @@ T_O=$(signin "$E_O")
 for e in "$E_1" "$E_2" "$E_3"; do approve "$(submit "Member ${e%%-*}" "$e")" "$T_O"; done
 ID_1=$(user_id "$E_1"); ID_2=$(user_id "$E_2"); ID_3=$(user_id "$E_3")
 check "setup: officer and three members" yes "$([ -n "$T_O" ] && [ ${#ID_3} -eq 36 ] && echo yes || echo no)"
+isolate_officers
+check "setup: officer counter covers only the test officer" 1 "$(officer_counter)"
 reset_rate_limits
 
 # --- promote member 1
@@ -103,10 +111,10 @@ WINNER_EMAIL=$("$AWS" dynamodb scan --table-name ClubUsers --output json | jget 
 T_W=$(signin "$WINNER_EMAIL")
 
 # --- refused changes
-helper set-user "$ID_3" active false
+helper set-user "$ID_3" active false; isolate_officers
 set_role "$T_W" "$ID_3" officer
 check "promote a deactivated member" "409|target_not_active" "$STATUS|$(printf '%s' "$BODY_OUT" | jget 'j.error')"
-helper set-user "$ID_3" active true
+helper set-user "$ID_3" active true; isolate_officers
 set_role "$(signin "$E_3")" "$ID_1" officer; check "member token" 403 "$STATUS" "$BODY_OUT"
 set_role "" "$ID_1" officer;                 check "no token" 401 "$STATUS" "$BODY_OUT"
 set_role "$T_W" "not-a-uuid" officer;        check "invalid user id" 400 "$STATUS" "$BODY_OUT"

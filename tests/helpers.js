@@ -5,6 +5,7 @@
 //   node tests/helpers.js token USERID ROLE [valid|expired|wrongkey|none|hs256]
 //   node tests/helpers.js set-user USERID FIELD JSONVALUE
 //   node tests/helpers.js audit-fill COUNT TARGETID   (login_failure entries, same timestamp)
+//   node tests/helpers.js isolate-officers     officer counter = test officers only (cleanup restores it)
 // Tokens are minted with the service's real private key (read from Secrets
 // Manager) only so tests can act before login exists, and to build attacks.
 const path = require("path");
@@ -40,9 +41,13 @@ async function resetLimits() {
   }
 }
 
-async function recountOfficers() {
+// testOnly: count only *@example.test officers. role-change.sh uses this so
+// the last-officer rule can be tested on a Floci that also holds real
+// officer accounts; cleanup always restores the real count.
+async function recountOfficers(testOnly = false) {
   const users = await scanAll("ClubUsers");
-  const count = users.filter((u) => u.role === "officer" && u.active === true && !u.userId.startsWith("META#")).length;
+  const count = users.filter((u) => u.role === "officer" && u.active === true && !u.userId.startsWith("META#")
+    && (!testOnly || (u.emailLower || "").includes(TEST))).length;
   await db.send(new PutCommand({ TableName: "ClubUsers", Item: { userId: "META#officers", count } }));
   return count;
 }
@@ -133,5 +138,6 @@ async function auditFill(count, targetId) {
   else if (cmd === "token") process.stdout.write(await token(a[0], a[1], a[2]));
   else if (cmd === "set-user") await setUser(a[0], a[1], a[2]);
   else if (cmd === "audit-fill") await auditFill(a[0], a[1]);
+  else if (cmd === "isolate-officers") process.stdout.write(String(await recountOfficers(true)));
   else throw new Error(`unknown command ${cmd}`);
 })().catch((e) => { console.error(e.message); process.exit(1); });
