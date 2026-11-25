@@ -3,6 +3,7 @@
 //   GET   /api/membership-requests?status= officer lists requests
 //   PATCH /api/membership-requests/:id     officer approves or rejects once
 const validate = require("../lib/validate");
+const notify = require("../services/notify");
 const { hashPassword } = require("../lib/passwords");
 const { clientIpHash } = require("../lib/clientIp");
 const config = require("../lib/config");
@@ -76,6 +77,8 @@ async function review(req, res, next) {
     }
     const result = await requests.review(id, req.officer.userId, decision);
     const { userId, ...publicResult } = result;
+    // Welcome notice for the new member (SNS); not again for a repeat.
+    if (userId && result.status === "approved" && !result.alreadyDecided) await notify.membershipApproved(userId);
     return res.status(200).json(publicResult);
   } catch (err) {
     if (err instanceof requests.NotFound) return res.status(404).json({ error: "request_not_found" });

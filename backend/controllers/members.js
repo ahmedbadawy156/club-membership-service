@@ -4,6 +4,7 @@
 const validate = require("../lib/validate");
 const roles = require("../services/roles");
 const memberSearch = require("../services/memberSearch");
+const notify = require("../services/notify");
 
 const STATUSES = ["active", "inactive", "all"];
 
@@ -45,7 +46,9 @@ async function changeRole(req, res, next) {
     if (!roles.ROLES.includes(role)) {
       return res.status(400).json({ error: "validation_failed", fields: ["role"] });
     }
-    return res.status(200).json(await roles.changeRole(id, req.officer.userId, role));
+    const result = await roles.changeRole(id, req.officer.userId, role);
+    if (result.changed) await notify.roleChanged(result.userId, result.role); // notice (SNS)
+    return res.status(200).json(result);
   } catch (err) {
     if (err instanceof roles.UserNotFound) return res.status(404).json({ error: "user_not_found" });
     if (err instanceof roles.TargetNotActive) return res.status(409).json({ error: "target_not_active" });

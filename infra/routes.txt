@@ -19,3 +19,7 @@ GET /api/members
 OPTIONS /api/members
 GET /api/audit-log
 OPTIONS /api/audit-log
+GET /api/notifications
+OPTIONS /api/notifications
+POST /api/notifications/seen
+OPTIONS /api/notifications/seen

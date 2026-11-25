@@ -35,6 +35,18 @@
       "Resource": "arn:aws:dynamodb:us-east-1:000000000000:table/RateLimits"
     },
     {
+      "Sid": "ReadOwnNoticesOnly",
+      "Effect": "Allow",
+      "Action": "dynamodb:Query",
+      "Resource": "arn:aws:dynamodb:us-east-1:000000000000:table/MemberNotifications"
+    },
+    {
+      "Sid": "PublishMemberNotices",
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:us-east-1:000000000000:club-member-notifications"
+    },
+    {
       "Sid": "OwnSecretReadOnly",
       "Effect": "Allow",
       "Action": "secretsmanager:GetSecretValue",

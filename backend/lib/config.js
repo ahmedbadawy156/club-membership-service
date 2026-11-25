@@ -7,6 +7,12 @@ module.exports = {
     rateLimits: process.env.RATE_LIMITS_TABLE || "RateLimits",
   },
   secretId: process.env.SECRET_ID || "club-membership/secrets",
+  // Member notices: SNS topic (empty = do not publish) and the table the
+  // notifier Lambda writes to.
+  notifications: {
+    topicArn: process.env.NOTIFICATIONS_TOPIC_ARN || "",
+    table: process.env.NOTIFICATIONS_TABLE || "MemberNotifications",
+  },
   limits: {
     requestsPerHourPerAddress: 5,
     maxPendingRequests: 200,

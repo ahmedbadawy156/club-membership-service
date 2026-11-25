@@ -4,12 +4,12 @@ Membership and Roles service for Team 10's Campus Club Management project
 (Cloud Computing and Cloud Security, 26CSCN29H). Owner: **Ahmed Emad Badawy**.
 
 Node.js + Express, run on **AWS Lambda** behind **Amazon API Gateway**, with
-**Amazon DynamoDB**, **AWS Secrets Manager**, **AWS IAM** and **Amazon
-CloudWatch Logs**, deployed to **Floci** (a local AWS emulator) following
+**Amazon DynamoDB**, **AWS Secrets Manager**, **Amazon SNS**, **Amazon
+EventBridge**, **AWS IAM** and **Amazon CloudWatch Logs**, deployed to **Floci** (a local AWS emulator) following
 the Lab 7 pattern. The same Express app also runs on a PC with `npm run dev`.
 
 > **Status:** all seven endpoints from the Phase 1 proposal are built and
-> tested on Floci. Nothing is deployed to real AWS. The earlier Supabase
+> tested on Floci, plus member notifications (SNS). Nothing is deployed to real AWS. The earlier Supabase
 > prototype is kept on branch `feature/membership-workflow` for reference.
 
 ## What the service does
@@ -25,6 +25,9 @@ the Lab 7 pattern. The same Express app also runs on a PC with `npm run dev`.
 - Officers search members and read an append-only audit log.
 - The Events and Announcements services verify tokens with the public key
   this service publishes.
+- Members get notices: welcome on approval, role changes, a seat that opened
+  up for them, and events they signed up for that were cancelled. The last two
+  come from the Events service through the club's EventBridge bus.
 
 ## Architecture
 
@@ -38,20 +41,34 @@ API Gateway  club-membership-http-api   ← route allow-list (infra/routes.txt)
 Lambda  club-membership-api  (Express via serverless-http, Node.js 24)
    ├── DynamoDB      ClubUsers · MembershipRequests · AuditLog · RateLimits
    ├── Secrets Mgr   club-membership/secrets (RS256 key pair, address-hash salt)
+   ├── SNS           club-member-notifications  (approval, role change)
    └── CloudWatch    /aws/lambda/club-membership-api  (one line per request)
 IAM role  club-membership-role: only the resources above (infra/iam/)
+
+Member notices
+  Membership API ──────────────────────────┐
+  Events ─► EventBridge bus campus-club-bus │
+            rule club-events-to-notifications (EventCancelled, SeatPromoted)
+                                           ▼
+            SNS topic club-member-notifications  (topic policy: this account + that rule)
+                                           ▼
+            Lambda club-membership-notifier  (own role: PutItem on one table)
+                                           ▼
+            DynamoDB MemberNotifications (TTL 60 days) ◄── GET /api/notifications
 ```
 
-## AWS services used (6)
+## AWS services used (8)
 
 | Service | Resource | Purpose |
 |---|---|---|
-| Lambda | `club-membership-api` | Runs the Express app |
+| Lambda | `club-membership-api`, `club-membership-notifier` | Runs the Express app; stores notices from SNS |
 | API Gateway (HTTP API) | `club-membership-http-api` | Public address; only listed routes reach the code |
-| DynamoDB | 4 tables (`infra/dynamodb/`) | Users, requests, audit log, rate-limit counters |
+| DynamoDB | 5 tables (`infra/dynamodb/`) | Users, requests, audit log, rate-limit counters, member notices (TTL) |
 | Secrets Manager | `club-membership/secrets` | Token signing key pair and address-hash salt |
-| IAM | `club-membership-role` | Least-privilege permissions, enforced on Floci |
-| CloudWatch Logs | `/aws/lambda/club-membership-api` | Request logs (no bodies, no query strings) |
+| SNS | `club-member-notifications` | Fans member notices out to the notifier; topic policy allows only this account and the bus rule |
+| EventBridge | rule `club-events-to-notifications` on `campus-club-bus` | Forwards EventCancelled and SeatPromoted from Events to the topic |
+| IAM | `club-membership-role`, `club-membership-notifier-role` | Least-privilege permissions, enforced on Floci |
+| CloudWatch Logs | `/aws/lambda/club-membership-api`, `.../club-membership-notifier` | Request logs (no bodies, no query strings); notice results (ids only) |
 
 ## Endpoints
 
@@ -70,6 +87,8 @@ Officer routes need `Authorization: Bearer <token>`. Errors are JSON:
 | GET | `/api/members?search=&status=active\|inactive\|all&limit=&offset=` | Officer | 200 | 400, 401, 403 |
 | PATCH | `/api/members/{id}/role` `{"role":"member"\|"officer"}` | Officer | 200 | 400, 401, 403, 404, 409 |
 | GET | `/api/audit-log?type=&limit=&before=<logId>` | Officer | 200 | 400, 401, 403 |
+| GET | `/api/notifications?limit=1..50` | Signed in (own only) | 200 | 400, 401 |
+| POST | `/api/notifications/seen` | Signed in (own only) | 204 | 401, 404 |
 
 Any other method or path is refused by API Gateway with `404 {"message":"Not Found"}`
 before the function runs.
@@ -93,6 +112,8 @@ this service checks the current role in DynamoDB on every officer request.
 | The last officer cannot be demoted | Transaction decrements `META#officers` only while it is above 1 |
 | 5 failures lock for 15 minutes | Attempt counted before the password check with a conditional atomic update |
 | 5 requests per hour, 20 logins per 15 minutes per address | Conditional atomic counters in `RateLimits` (TTL cleans up) |
+| A notice is stored once, even if SNS delivers twice | Sort key built from the message's own id and time, written with `attribute_not_exists` |
+| Members see only their own notices | The user id comes from the token; no id is read from the request |
 
 ## Security controls
 
@@ -107,6 +128,8 @@ this service checks the current role in DynamoDB on every officer request.
 | CORS only for `CORS_ORIGINS`, `Retry-After` exposed | `app.js` |
 | Route allow-list at the gateway | `infra/routes.txt` |
 | Least-privilege IAM; audit log append-only (no update or delete) | `infra/iam/membership-policy.json`, `tests/iam.sh` |
+| Notifier has its own role (PutItem on MemberNotifications only); only the topic may invoke it; only this account and the bus rule may publish | `infra/iam/notifier-policy.json`, `infra/deploy.sh` |
+| Notices carry ids and event titles, never emails; the notifier drops unknown sources and logs only message ids | `services/notifications.js`, `notifier.js` |
 | Logs: method, path, status, time only | `middleware/requestLog.js` |
 | No secrets in the repository; `.env` and generated files ignored | `.gitignore`, `infra/collect-evidence.sh` |
 
@@ -118,7 +141,7 @@ Run in Git Bash from the repository root.
 
 ```
 docker compose -f infra/floci/docker-compose.yml up -d   # start Floci (IAM enforcement on)
-bash infra/deploy.sh                                      # tables, secret, role, Lambda, API
+bash infra/deploy.sh                                      # tables, secret, roles, Lambdas, API, SNS, rule
 bash infra/create-officer.sh                              # first officer (hidden password)
 bash tests/run-all.sh                                     # every test suite
 ```
@@ -141,7 +164,8 @@ bash tests/run-all.sh                                     # every test suite
 | `tests/login.sh` | Lockout, simultaneous guesses, limits, public key |
 | `tests/role-change.sh` | Roles, last officer, simultaneous demotions |
 | `tests/members-audit.sh` | Search, audit log paging and filters |
-| `tests/iam.sh` | The role's allowed and refused calls on Floci |
+| `tests/notifications.sh` | SNS wiring, notices from approvals, role changes and the bus, duplicates, dropped messages, own-only, unread/seen, end to end through Events |
+| `tests/iam.sh` | Both roles' allowed and refused calls on Floci |
 
 `bash tests/run-all.sh` runs them all. `bash infra/collect-evidence.sh`
 saves the results and resource listings into `evidence/`. See
@@ -171,5 +195,9 @@ evidence/       saved test results and Floci resource listings
 - On Floci every bucket shares the origin `http://localhost:4566`, so CORS
   cannot tell the club site from another bucket; IAM is checked only when the
   Floci enforcement switch is on (it is in `infra/floci/docker-compose.yml`).
+- Notices are best effort: if SNS is down when an officer approves someone,
+  the approval stands and the failure is logged, but no notice is sent.
+- The notifier has no dead-letter queue: a notice that still fails after
+  Lambda's two automatic retries is lost (it is logged).
 - Floci is an emulator on one laptop: no provider guarantees, and data lives
   in a Docker volume (`club-floci-data`).

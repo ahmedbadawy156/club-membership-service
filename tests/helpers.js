@@ -63,6 +63,13 @@ async function cleanup() {
       await db.send(new DeleteCommand({ TableName: "AuditLog", Key: { logId: a.logId } }));
     }
   }
+  // Notices for test accounts, and for the fixed test ids the other
+  // services' tests use (aaaaaaaa-0000-4000-8000-...).
+  for (const n of await scanAll("MemberNotifications").catch(() => [])) {
+    if (userIds.has(n.userId) || n.userId.startsWith("aaaaaaaa-0000-4000-8000-")) {
+      await db.send(new DeleteCommand({ TableName: "MemberNotifications", Key: { userId: n.userId, sortKey: n.sortKey } }));
+    }
+  }
   for (const u of users) await db.send(new DeleteCommand({ TableName: "ClubUsers", Key: { userId: u.userId } }));
   for (const r of requests) await db.send(new DeleteCommand({ TableName: "MembershipRequests", Key: { requestId: r.requestId } }));
   await resetLimits();

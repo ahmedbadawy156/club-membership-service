@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteNoticesOnly",
+      "Effect": "Allow",
+      "Action": "dynamodb:PutItem",
+      "Resource": "arn:aws:dynamodb:us-east-1:000000000000:table/MemberNotifications"
+    },
+    {
+      "Sid": "OwnLogGroupOnly",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": [
+        "arn:aws:logs:us-east-1:000000000000:log-group:/aws/lambda/club-membership-notifier",
+        "arn:aws:logs:us-east-1:000000000000:log-group:/aws/lambda/club-membership-notifier:*"
+      ]
+    }
+  ]
+}

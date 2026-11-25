@@ -9,7 +9,7 @@ OUT=infra/out/test-results.txt
 TOTAL_PASS=0; TOTAL_FAIL=0; FAILED_SUITES=""
 
 for suite in infra/check.sh tests/membership-requests.sh tests/officer-review.sh \
-             tests/login.sh tests/role-change.sh tests/members-audit.sh tests/iam.sh; do
+             tests/login.sh tests/role-change.sh tests/members-audit.sh tests/notifications.sh tests/iam.sh; do
   echo "### $suite ($(date -u +%Y-%m-%dT%H:%M:%SZ))" >> "$OUT"
   bash "$suite" >> "$OUT" 2>&1
   line=$(grep -E '^== [0-9]+ passed, [0-9]+ failed' "$OUT" | tail -1)

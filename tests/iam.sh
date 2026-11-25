@@ -27,23 +27,44 @@ const c=Buffer.alloc(46);c.writeUInt32LE(0x02014b50,0);c.writeUInt16LE(0x0314,4)
 const e=Buffer.alloc(22);e.writeUInt32LE(0x06054b50,0);e.writeUInt16LE(1,8);e.writeUInt16LE(1,10);e.writeUInt32LE(46+name.length,12);e.writeUInt32LE(30+name.length+packed.length,16);
 fs.writeFileSync("infra/out/tmp/iam-probe.zip",Buffer.concat([l,name,packed,c,name,e]));'
 
-"$AWS" lambda delete-function --function-name "$PROBE" >/dev/null 2>&1
-"$AWS" lambda create-function --function-name "$PROBE" --runtime nodejs24.x --handler index.handler \
-  --role "arn:aws:iam::$ACCOUNT:role/$ROLE" --zip-file fileb://infra/out/tmp/iam-probe.zip --timeout 30 >/dev/null
-"$AWS" lambda wait function-active-v2 --function-name "$PROBE"
-"$AWS" lambda invoke --function-name "$PROBE" --cli-read-timeout 300 infra/out/tmp/iam-probe.json >/dev/null
-R=$(cat infra/out/tmp/iam-probe.json)
+# probe ROLE -> results JSON in R
+probe() {
+  "$AWS" lambda delete-function --function-name "$PROBE" >/dev/null 2>&1
+  "$AWS" lambda create-function --function-name "$PROBE" --runtime nodejs24.x --handler index.handler \
+    --role "arn:aws:iam::$ACCOUNT:role/$1" --zip-file fileb://infra/out/tmp/iam-probe.zip --timeout 30 >/dev/null
+  "$AWS" lambda wait function-active-v2 --function-name "$PROBE"
+  "$AWS" lambda invoke --function-name "$PROBE" --cli-read-timeout 300 infra/out/tmp/iam-probe.json >/dev/null
+  R=$(cat infra/out/tmp/iam-probe.json)
+}
+expect() { # LABEL op:want ...
+  local label=$1 pair op want; shift
+  for pair in "$@"; do
+    op=${pair%%:*}; want=${pair##*:}
+    check "$label: $op" "$want" "$(printf '%s' "$R" | jget "j[\"$op\"]")"
+  done
+}
 
-for pair in "scan ClubUsers:allowed" "read own secret:allowed" "put AuditLog:allowed" \
-            "update AuditLog:denied" "delete AuditLog:denied" "scan RateLimits:denied" "list tables:denied" "create a secret:denied"; do
-  op=${pair%%:*}; want=${pair##*:}
-  check "role: $op" "$want" "$(printf '%s' "$R" | jget "j[\"$op\"]")"
-done
+probe "$ROLE"
+expect "role" "scan ClubUsers:allowed" "read own secret:allowed" "put AuditLog:allowed" \
+  "update AuditLog:denied" "delete AuditLog:denied" "scan RateLimits:denied" "list tables:denied" "create a secret:denied" \
+  "query MemberNotifications:allowed" "publish to the notifications topic:allowed" \
+  "put MemberNotifications:denied" "delete MemberNotifications:denied" "scan MemberNotifications:denied" \
+  "subscribe to the notifications topic:denied" "put event on the club bus:denied"
+
+# The notifier (SNS -> MemberNotifications) has its own role: write notices, nothing else.
+check "admin keys cannot assume the notifier's role" denied \
+  "$("$AWS" sts assume-role --role-arn "arn:aws:iam::$ACCOUNT:role/$NOTIFIER_ROLE" --role-session-name t >/dev/null 2>&1 && echo allowed || echo denied)"
+probe "$NOTIFIER_ROLE"
+expect "notifier role" "put MemberNotifications:allowed" \
+  "query MemberNotifications:denied" "delete MemberNotifications:denied" "scan MemberNotifications:denied" \
+  "scan ClubUsers:denied" "put AuditLog:denied" "read own secret:denied" "list tables:denied" \
+  "publish to the notifications topic:denied" "put event on the club bus:denied"
 
 # Clean up the probe and the audit entry it wrote.
 "$AWS" lambda delete-function --function-name "$PROBE" >/dev/null 2>&1
 "$AWS" logs delete-log-group --log-group-name "/aws/lambda/$PROBE" >/dev/null 2>&1
 "$AWS" dynamodb delete-item --table-name AuditLog --key '{"logId":{"S":"iam-probe"}}' >/dev/null 2>&1
+"$AWS" dynamodb delete-item --table-name MemberNotifications --key '{"userId":{"S":"iam-probe"},"sortKey":{"S":"iam-probe"}}' >/dev/null 2>&1
 "$AWS" secretsmanager delete-secret --secret-id iam-probe-should-fail --force-delete-without-recovery >/dev/null 2>&1
 rm -f infra/out/tmp/iam-probe.*
 finish

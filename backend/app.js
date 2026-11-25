@@ -12,6 +12,7 @@ const membershipRequestRoutes = require("./routes/membershipRequests");
 const authRoutes = require("./routes/auth");
 const memberRoutes = require("./routes/members");
 const auditLogRoutes = require("./routes/auditLog");
+const notificationRoutes = require("./routes/notifications");
 
 const app = express();
 app.disable("x-powered-by");
@@ -65,6 +66,7 @@ app.use("/api/membership-requests", membershipRequestRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/members", memberRoutes);
 app.use("/api/audit-log", auditLogRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
