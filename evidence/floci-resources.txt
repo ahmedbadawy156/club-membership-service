@@ -1,12 +1,18 @@
-# Floci resources for the Membership service (2026-11-22T13:26:09Z)
+# Floci resources for the Membership service (2026-11-26T00:30:35Z)
 # Account: 000000000000   Region: us-east-1
 # Floci IAM enforcement: true
 
 ## DynamoDB tables
-AuditLog             status=ACTIVE items=0 indexes=FeedIndex,TypeIndex
-ClubUsers            status=ACTIVE items=1 indexes=EmailIndex
-MembershipRequests   status=ACTIVE items=0 indexes=StatusIndex
+Activities           status=ACTIVE items=0 indexes=FeedIndex
+Announcements        status=ACTIVE items=1 indexes=StatusIndex
+AuditLog             status=ACTIVE items=4 indexes=FeedIndex,TypeIndex
+ClubEvents           status=ACTIVE items=0 indexes=StatusIndex
+ClubUsers            status=ACTIVE items=3 indexes=EmailIndex
+EventRsvps           status=ACTIVE items=0 indexes=WaitlistIndex
+MemberNotifications  status=ACTIVE items=0 indexes=None
+MembershipRequests   status=ACTIVE items=3 indexes=StatusIndex
 RateLimits           status=ACTIVE items=0 indexes=None
+WeatherCache         status=ACTIVE items=0 indexes=None
 RateLimits TTL: ENABLED	expiresAt
 
 ## Lambda function (environment variable NAMES only)
@@ -21,7 +27,7 @@ RateLimits TTL: ENABLED	expiresAt
 |  State  |  Active                                                |
 |  Timeout|  15                                                    |
 +---------+--------------------------------------------------------+
-Environment variable names: NODE_ENV CORS_ORIGINS SECRET_ID USERS_TABLE REQUESTS_TABLE AUDIT_TABLE RATE_LIMITS_TABLE
+Environment variable names: NODE_ENV CORS_ORIGINS SECRET_ID USERS_TABLE REQUESTS_TABLE AUDIT_TABLE RATE_LIMITS_TABLE NOTIFICATIONS_TABLE NOTIFICATIONS_TOPIC_ARN
 
 ## API Gateway club-membership-http-api (http://921c818603.execute-api.localhost.floci.io:4566)
   GET /api/audit-log
@@ -29,16 +35,20 @@ Environment variable names: NODE_ENV CORS_ORIGINS SECRET_ID USERS_TABLE REQUESTS
   GET /api/health
   GET /api/members
   GET /api/membership-requests
+  GET /api/notifications
   OPTIONS /api/audit-log
   OPTIONS /api/auth/login
   OPTIONS /api/members
   OPTIONS /api/members/{id}/role
   OPTIONS /api/membership-requests
   OPTIONS /api/membership-requests/{id}
+  OPTIONS /api/notifications
+  OPTIONS /api/notifications/seen
   PATCH /api/members/{id}/role
   PATCH /api/membership-requests/{id}
   POST /api/auth/login
   POST /api/membership-requests
+  POST /api/notifications/seen
 
 ## IAM role club-membership-role
 Trust: lambda.amazonaws.com
@@ -50,22 +60,28 @@ Secret: club-membership/secrets
 Keys: jwtPrivateKey, jwtPublicKey, ipHashSalt
 
 ## CloudWatch Logs /aws/lambda/club-membership-api (latest request lines)
- 2026-11-22T13:25:41.228Z 3932547a-5999-4d2e-8815-7784b32adf03 INFO 2026-11-22T13:25:41.228Z GET /api/audit-log 200 9ms
- 2026-11-22T13:25:41.527Z b519f14b-4690-424e-905d-6ab5f3631f59 INFO 2026-11-22T13:25:41.527Z GET /api/audit-log 200 9ms
- 2026-11-22T13:25:41.832Z 68da0844-b0b9-4587-b717-09634a958b5b INFO 2026-11-22T13:25:41.832Z GET /api/audit-log 200 8ms
- 2026-11-22T13:25:42.123Z e1c96cfe-3473-4716-a325-73d52c2fcfdd INFO 2026-11-22T13:25:42.123Z GET /api/audit-log 200 8ms
- 2026-11-22T13:25:42.568Z ebb6a5a6-5e7f-4735-b0d9-1a334ef524ea INFO 2026-11-22T13:25:42.568Z GET /api/audit-log 200 8ms
- 2026-11-22T13:25:42.795Z fef93b79-690c-49fb-ba43-0b533174c556 INFO 2026-11-22T13:25:42.795Z GET /api/audit-log 400 4ms
- 2026-11-22T13:25:42.936Z e8e48151-67a8-4c63-9497-03f7ab88d699 INFO 2026-11-22T13:25:42.936Z GET /api/audit-log 400 3ms
- 2026-11-22T13:25:43.059Z 9f2705c2-4491-4598-add6-e91542d85ba3 INFO 2026-11-22T13:25:43.059Z GET /api/audit-log 400 2ms
- 2026-11-22T13:25:43.248Z be7ea53c-5a93-4fc5-b7d3-d92b5231d59a INFO 2026-11-22T13:25:43.248Z GET /api/audit-log 400 3ms
- 2026-11-22T13:25:43.361Z a3cfe5c3-a523-420f-b849-387f83481562 INFO 2026-11-22T13:25:43.361Z GET /api/audit-log 400 4ms
- 2026-11-22T13:25:43.482Z bf4ad9a1-0a20-4cb0-b583-8adde69bedd6 INFO 2026-11-22T13:25:43.482Z GET /api/audit-log 403 3ms
- 2026-11-22T13:25:43.636Z b910d98b-d788-478d-be5a-3fa8a6940787 INFO 2026-11-22T13:25:43.636Z GET /api/audit-log 401 0ms
+ 2026-11-26T00:28:57.170Z ae34ee45-de00-41fe-828d-7434e6bf0d2f INFO 2026-11-26T00:28:57.170Z GET /api/notifications 200 6ms
+ 2026-11-26T00:28:57.501Z 38eee09a-c561-498a-96c8-99ad30cf1b4a INFO 2026-11-26T00:28:57.501Z POST /api/notifications/seen 204 3ms
+ 2026-11-26T00:28:57.629Z 01ccbd8b-baa9-49a0-845b-056bab4549ee INFO 2026-11-26T00:28:57.629Z GET /api/notifications 200 6ms
+ 2026-11-26T00:29:04.572Z 0ca2a121-c3ea-4918-bff9-7ee5f06718cb INFO 2026-11-26T00:29:04.572Z GET /api/notifications 200 7ms
+ 2026-11-26T00:29:04.824Z 90a8bbb1-92e2-4c6a-a237-142b0f8bc473 INFO 2026-11-26T00:29:04.824Z GET /api/notifications 200 9ms
+ 2026-11-26T00:29:05.049Z 3794fd53-5a49-49f0-82f9-81b0b6c6258a INFO 2026-11-26T00:29:05.049Z GET /api/notifications 400 0ms
+ 2026-11-26T00:29:05.203Z ae022147-99f6-4943-869c-1ad732f79056 INFO 2026-11-26T00:29:05.203Z GET /api/notifications 400 1ms
+ 2026-11-26T00:29:05.331Z 30c6321a-44af-48df-8d72-db2942fed9af INFO 2026-11-26T00:29:05.331Z GET /api/notifications 401 0ms
+ 2026-11-26T00:29:05.482Z 6a57ed02-a83b-4b95-aa67-061ade163780 INFO 2026-11-26T00:29:05.481Z POST /api/notifications/seen 401 1ms
+ 2026-11-26T00:29:08.584Z 888a9de6-4d2d-4f54-8605-09b842414637 INFO 2026-11-26T00:29:08.584Z POST /api/auth/login 200 70ms
+ 2026-11-26T00:29:08.784Z be527213-54be-43ea-955d-318835d50267 INFO 2026-11-26T00:29:08.784Z POST /api/auth/login 200 67ms
+ 2026-11-26T00:29:08.969Z 3bfe7782-071c-47c4-b868-4c20b0af7f6b INFO 2026-11-26T00:29:08.969Z POST /api/auth/login 200 67ms
 
 ## S3 website bucket club-web
+  announcements/activities.html
+  announcements/activities.js
+  announcements/announcements.css
   announcements/index.html
   announcements/index.js
+  events/event.html
+  events/event.js
+  events/events.css
   events/index.html
   events/index.js
   home.js
@@ -78,6 +94,8 @@ Keys: jwtPrivateKey, jwtPublicKey, ipHashSalt
   membership/login.js
   membership/members.html
   membership/members.js
+  membership/notifications.html
+  membership/notifications.js
   membership/requests.html
   membership/requests.js
   shared/api.js

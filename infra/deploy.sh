@@ -171,6 +171,17 @@ step "8/8 EventBridge rule $RULE (bus $BUS -> topic)"
   --event-pattern '{"source":["club.events"],"detail-type":["EventCancelled","SeatPromoted"]}' >/dev/null
 "$AWS" events put-targets --rule "$RULE" --event-bus-name "$BUS" --targets "Id=notices,Arn=$TOPIC_ARN" >/dev/null
 
+step "Monitoring: failed-login metric and alarm"
+# Every "POST /api/auth/login 401" log line counts as one FailedLogins data
+# point; 5 or more in 5 minutes puts the alarm in ALARM (guessing attack).
+"$AWS" logs put-metric-filter --log-group-name "$LOG_GROUP" --filter-name FailedLogins \
+  --filter-pattern '"POST /api/auth/login 401"' \
+  --metric-transformations metricName=FailedLogins,metricNamespace=CampusClub,metricValue=1
+"$AWS" cloudwatch put-metric-alarm --alarm-name club-failed-logins-burst \
+  --namespace CampusClub --metric-name FailedLogins --statistic Sum --period 300 \
+  --evaluation-periods 1 --threshold 5 --comparison-operator GreaterThanOrEqualToThreshold \
+  --treat-missing-data notBreaching
+
 API_URL=$(api_url "$API_ID")
 mkdir -p infra/out
 printf 'API_ID=%s\nAPI_URL=%s\n' "$API_ID" "$API_URL" > infra/out/api.env

@@ -1,4 +1,4 @@
-### infra/check.sh (2026-11-22T13:21:57Z)
+### infra/check.sh (2026-11-26T00:22:53Z)
 == Membership service on Floci: http://921c818603.execute-api.localhost.floci.io:4566
 PASS  function state                                          Active
 PASS  function runtime                                        nodejs24.x
@@ -12,15 +12,15 @@ PASS  CloudWatch Logs has request lines                       yes
 PASS  log lines never contain a query string                  0
 == 10 passed, 0 failed
 
-### tests/membership-requests.sh (2026-11-22T13:22:11Z)
-== membership-requests tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353731)
+### tests/membership-requests.sh (2026-11-26T00:23:10Z)
+== membership-requests tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795652590)
 PASS  valid request                                           201
 PASS    response has only requestId and status                requestId,status
 PASS    stored as pending                                     pending
 PASS    password stored as a bcrypt hash                      yes
 PASS    plain password not stored anywhere in the item        no
 PASS    address stored only as a 64-char hash                 yes
-PASS    email claimed once (EMAIL# item)                      ca4154aa-880a-4e4a-ac59-6d1cfcb4132d
+PASS    email claimed once (EMAIL# item)                      56a3873e-e55e-4d3b-a649-8dd9c225f2ea
 PASS    no account created before approval                    0
 PASS  duplicate email (different case)                        409
 PASS    still exactly one request for the email               1
@@ -47,24 +47,22 @@ PASS  spoofed X-Forwarded-For does not reset the limit        429
 PASS    refused requests stored nothing                       0
 == 31 passed, 0 failed
 
-### tests/officer-review.sh (2026-11-22T13:22:36Z)
-== officer review tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353756)
-PASS  create-officer.sh creates the first officer             yes
-PASS    officer stored as active officer                      officer|true
-PASS    bootstrap audit entry written                         1
+### tests/officer-review.sh (2026-11-26T00:23:36Z)
+== officer review tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795652616)
+SKIP  create-officer success path (a real officer already exists)
 PASS  officer token from the real login                       yes
 PASS  create-officer.sh refused when an officer exists        yes
 PASS    and created nothing                                   
 PASS  setup: four requests submitted                          yes
 PASS  officer lists pending requests                          200
-PASS    contains the four test requests, oldest first         b6d02fcb-4567-4229-9798-7ef43d4ce208,75e8815d-ad7c-4dee-94c9-669ed9321fdd,852c9707-81bf-4924-9ef3-ae86784920d5,2bd87d04-89b6-45a0-8d39-50ed4b779864
+PASS    contains the four test requests, oldest first         e54a51e2-b445-40f7-bd7b-f99decba74b8,38bbd254-7294-48b1-a976-c760d93959c4,58ddcc9c-675f-4819-b632-f2012cb49956,c32fce40-14c2-464f-a577-5b9f449f962f
 PASS    only documented fields, no hash                       email,fullName,requestId,reviewedAt,reviewedBy,status,submittedAt
 PASS  invalid status filter                                   400
 PASS  approve request A                                       200
-PASS    response                                              b6d02fcb-4567-4229-9798-7ef43d4ce208|approved|false
+PASS    response                                              e54a51e2-b445-40f7-bd7b-f99decba74b8|approved|false
 PASS    account created: active member                        member|true|0
 PASS    password hash moved to the account                    yes
-PASS    request: approved, reviewer recorded, no hash left    approved|363e982e-099a-46f2-ab79-8ef2dd24443e|
+PASS    request: approved, reviewer recorded, no hash left    approved|a0c7564b-6c47-4610-ada1-e611d33c0da9|
 PASS    audit: membership_approved by the officer             1
 PASS  approve A again                                         200|true
 PASS    no second account, no second audit entry              1|1
@@ -92,11 +90,11 @@ PASS  invalid request id                                      400
 PASS  unknown request id                                      404
 PASS  invalid decision                                        400
 PASS  GET on a single request: refused by the gateway         404
-PASS  approved list shows A reviewed by the officer           363e982e-099a-46f2-ab79-8ef2dd24443e
-== 44 passed, 0 failed
+PASS  approved list shows A reviewed by the officer           a0c7564b-6c47-4610-ada1-e611d33c0da9
+== 41 passed, 0 failed
 
-### tests/login.sh (2026-11-22T13:23:31Z)
-== login tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353811)
+### tests/login.sh (2026-11-26T00:24:25Z)
+== login tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795652665)
 PASS  officer signs in through the API                        yes
 PASS  setup: three approved members exist                     member|member|member
 PASS  correct login                                           200
@@ -128,9 +126,10 @@ PASS  caller already signed in                                403
 PASS  GET on login: refused by the gateway                    404
 == 29 passed, 0 failed
 
-### tests/role-change.sh (2026-11-22T13:24:39Z)
-== role change tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353879)
+### tests/role-change.sh (2026-11-26T00:25:35Z)
+== role change tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795652736)
 PASS  setup: officer and three members                        yes
+PASS  setup: officer counter covers only the test officer     1
 PASS  promote member 1                                        200
 PASS    changed true, previous role member                    true|member|officer
 PASS    member 1's next login token says officer              officer
@@ -161,10 +160,10 @@ PASS  unknown user                                            404
 PASS  GET on the role path: refused by the gateway            404
 PASS  audit has one role_changed per real change              6
 PASS    entries record old and new role                       officer>member
-== 31 passed, 0 failed
+== 32 passed, 0 failed
 
-### tests/members-audit.sh (2026-11-22T13:25:28Z)
-== members and audit-log tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795353928)
+### tests/members-audit.sh (2026-11-26T00:26:27Z)
+== members and audit-log tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795652787)
 PASS  setup: officer and three members                        yes
 PASS  officer lists active members                            200
 PASS    sorted by name, inactive left out                     Alice Smith, Bob 100% Real, Carol_Jones
@@ -206,7 +205,67 @@ PASS  audit-log: no token                                     401
 PASS  audit-log: DELETE refused by the gateway                404
 == 39 passed, 0 failed
 
-### tests/iam.sh (2026-11-22T13:25:44Z)
+### tests/notifications.sh (2026-11-26T00:26:44Z)
+== notification tests on http://921c818603.execute-api.localhost.floci.io:4566 (run 1795652804)
+PASS  topic exists                                            arn:aws:sns:us-east-1:000000000000:club-member-notifications
+PASS  topic pushes to the notifier Lambda                     lambda|arn:aws:lambda:us-east-1:000000000000:function:club-membership-notifier
+PASS  topic policy: only this account and the club bus rule may publish OwnAccount,OnlyTheClubBusRule|arn:aws:events:us-east-1:000000000000:rule/campus-club-bus/club-events-to-notifications
+PASS  rule forwards EventCancelled and SeatPromoted from club.events {"source":["club.events"],"detail-type":["EventCancelled","SeatPromoted"]}
+PASS  rule target is the topic                                arn:aws:sns:us-east-1:000000000000:club-member-notifications
+PASS  notifier runs under its own role                        arn:aws:iam::000000000000:role/club-membership-notifier-role
+PASS  old notices expire (TTL on expiresAt)                   ENABLED|expiresAt
+PASS  officer approves Ann                                    200
+PASS  officer approves Ben                                    200
+PASS  officer rejects Cat                                     200
+PASS  Ann gets one notice after approval                      1
+PASS  GET /api/notifications                                  200
+PASS    welcome notice, unread                                Welcome to the club|true|MembershipApproved
+PASS    unreadCount 1                                         1
+PASS    fields shown to the member                            createdAt,id,link,text,title,type,unread
+PASS  approving Ann again (already decided: 200, no change)   200
+PASS    and sends no second welcome                           1
+PASS  officer promotes Ben                                    200
+PASS  Ben: 'You are now an officer'                           You are now an officer;Welcome to the club
+PASS  promoting Ben again (no change)                         200
+PASS    sends no notice                                       2
+PASS  officer demotes Ben                                     200
+PASS  Ben: 'Your role is now member'                          Your role is now member
+PASS  SeatPromoted for Ann on the bus                         0
+PASS  Ann: 'You got a seat'                                   You got a seat: Robotics night
+PASS    links to the event page                               events/event.html?id=69be3bd0-921d-43b3-a6e5-52bcc43de043
+PASS  EventCancelled for Ann and Ben on the bus               0
+PASS  Ann: 'Cancelled: Robotics night'                        Cancelled: Robotics night
+PASS  Ben: 'Cancelled: Robotics night'                        Cancelled: Robotics night
+PASS  the officer (no RSVP) got nothing                       0
+PASS  EventPublished is not forwarded to members              0
+PASS  SeatPromoted from another source is not forwarded       0
+PASS    Ann still has 3 notices                               3
+PASS  the same message twice: one notice                      4
+PASS  unknown source, bad role, not JSON: no notices          4
+PASS    each one logged as dropped                            yes
+PASS    logs never contain message bodies or names            0
+PASS  Ben sees only his own notices                           4|0
+PASS    asking for Ann's id in the query still returns Ben's  4
+PASS  Ann: 4 unread                                           4
+PASS    newest first                                          yes
+PASS  POST /api/notifications/seen                            204
+PASS    unreadCount 0, all read                               0|0
+PASS    a newer notice is unread again                        1|You got a seat: Chess club|true
+PASS  limit=2 returns 2                                       2
+PASS  limit=0 refused                                         400
+PASS  limit=abc refused                                       400
+PASS  no token: 401                                           401
+PASS  POST seen without a token: 401                          401
+PASS  DELETE is not a route (gateway)                         404
+PASS  no notice ever carries an email                         0
+PASS  Events: Ann has the seat, Ben is waitlisted             waitlisted
+PASS  Events: Ann cancels her RSVP                            204
+PASS  Ben is told he got the seat                             You got a seat: Pizza and code
+PASS  Events: officer cancels the event                       200
+PASS  Ben is told it was cancelled                            Cancelled: Pizza and code
+== 56 passed, 0 failed
+
+### tests/iam.sh (2026-11-26T00:29:51Z)
 == IAM least-privilege test for role club-membership-role
 PASS  Floci IAM enforcement is on                             true
 PASS  admin keys cannot assume the function's role            denied
@@ -218,5 +277,23 @@ PASS  role: delete AuditLog                                   denied
 PASS  role: scan RateLimits                                   denied
 PASS  role: list tables                                       denied
 PASS  role: create a secret                                   denied
-== 10 passed, 0 failed
+PASS  role: query MemberNotifications                         allowed
+PASS  role: publish to the notifications topic                allowed
+PASS  role: put MemberNotifications                           denied
+PASS  role: delete MemberNotifications                        denied
+PASS  role: scan MemberNotifications                          denied
+PASS  role: subscribe to the notifications topic              denied
+PASS  role: put event on the club bus                         denied
+PASS  admin keys cannot assume the notifier's role            denied
+PASS  notifier role: put MemberNotifications                  allowed
+PASS  notifier role: query MemberNotifications                denied
+PASS  notifier role: delete MemberNotifications               denied
+PASS  notifier role: scan MemberNotifications                 denied
+PASS  notifier role: scan ClubUsers                           denied
+PASS  notifier role: put AuditLog                             denied
+PASS  notifier role: read own secret                          denied
+PASS  notifier role: list tables                              denied
+PASS  notifier role: publish to the notifications topic       denied
+PASS  notifier role: put event on the club bus                denied
+== 28 passed, 0 failed
 

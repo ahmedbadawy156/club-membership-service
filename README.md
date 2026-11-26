@@ -68,7 +68,7 @@ Member notices
 | SNS | `club-member-notifications` | Fans member notices out to the notifier; topic policy allows only this account and the bus rule |
 | EventBridge | rule `club-events-to-notifications` on `campus-club-bus` | Forwards EventCancelled and SeatPromoted from Events to the topic |
 | IAM | `club-membership-role`, `club-membership-notifier-role` | Least-privilege permissions, enforced on Floci |
-| CloudWatch Logs | `/aws/lambda/club-membership-api`, `.../club-membership-notifier` | Request logs (no bodies, no query strings); notice results (ids only) |
+| CloudWatch Logs | `/aws/lambda/club-membership-api`, `.../club-membership-notifier` | Request logs (no bodies, no query strings); notice results (ids only); `FailedLogins` metric filter and the `club-failed-logins-burst` alarm (5 or more failed logins in 5 minutes) |
 
 ## Endpoints
 
